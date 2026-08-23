@@ -10,6 +10,7 @@ from apps.engine.cache import (
     get_cached_experiment_config,
     serialize_experiment_config,
 )
+from apps.events.producer import produce_exposure
 from apps.engine.serializers import (
     DebugRequestSerializer,
     DebugStepSerializer,
@@ -94,6 +95,18 @@ class EvaluateView(APIView):
                 context=data["context"],
             )
             evaluations[key] = EvaluationResultSerializer(asdict(result)).data
+
+            # Auto-produce exposure event to Kafka
+            if result.assigned:
+                produce_exposure(
+                    user_id=data["user_id"],
+                    experiment_id=exp.id if hasattr(exp, "id") else "",
+                    experiment_key=result.experiment_key,
+                    version_number=result.version_number,
+                    variant_key=result.variant_key,
+                    bucket=result.bucket,
+                    source=result.source,
+                )
 
         return Response({"evaluations": evaluations})
 

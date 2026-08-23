@@ -20,3 +20,10 @@ PASSWORD_HASHERS = [
 
 # Disable Cassandra in tests (will be mocked)
 CASSANDRA_STICKY_ENABLED = False
+
+# Disable Kafka in tests (will be mocked)
+KAFKA_ENABLED = False
+
+# Disable ClickHouse in tests (will be mocked)
+CLICKHOUSE_HOST = ""
+CLICKHOUSE_DATABASE = "test_experimentos"

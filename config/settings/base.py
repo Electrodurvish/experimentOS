@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "apps.experiments",
     "apps.engine",
     "apps.audit",
+    "apps.events",
 ]
 
 MIDDLEWARE = [
@@ -135,3 +136,15 @@ CASSANDRA_CONTACT_POINTS = env.list("CASSANDRA_CONTACT_POINTS", default=["localh
 CASSANDRA_PORT = env.int("CASSANDRA_PORT", default=9042)
 CASSANDRA_KEYSPACE = env("CASSANDRA_KEYSPACE", default="experimentos")
 CASSANDRA_STICKY_ENABLED = env.bool("CASSANDRA_STICKY_ENABLED", default=True)
+
+# Kafka
+KAFKA_BOOTSTRAP_SERVERS = env("KAFKA_BOOTSTRAP_SERVERS", default="localhost:9092")
+KAFKA_ENABLED = env.bool("KAFKA_ENABLED", default=True)
+
+# ClickHouse
+CLICKHOUSE_HOST = env("CLICKHOUSE_HOST", default="localhost")
+CLICKHOUSE_PORT = env.int("CLICKHOUSE_PORT", default=8123)
+CLICKHOUSE_DATABASE = env("CLICKHOUSE_DATABASE", default="experimentos")
+
+# Event deduplication
+EVENT_DEDUP_TTL = 86400  # 24 hours

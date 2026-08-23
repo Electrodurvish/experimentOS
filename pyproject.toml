@@ -18,6 +18,8 @@ django-cors-headers = "^4.4"
 django-environ = "^0.11"
 redis = "^5.0"
 cassandra-driver = "^3.29"
+confluent-kafka = "^2.5"
+clickhouse-connect = "^0.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"

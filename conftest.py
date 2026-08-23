@@ -1,5 +1,5 @@
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import factory
 import fakeredis
@@ -100,7 +100,30 @@ def fake_redis():
     client = fakeredis.FakeRedis(server=server, decode_responses=True)
     with patch("apps.engine.cache.get_redis_client", return_value=client):
         with patch("apps.engine.locks.get_redis_client", return_value=client):
-            yield client
+            with patch("apps.events.consumer.get_redis_client", return_value=client):
+                yield client
+
+
+@pytest.fixture(autouse=True)
+def mock_kafka():
+    """Disable Kafka producer in all tests."""
+    mock_producer = MagicMock()
+    mock_producer.produce = MagicMock()
+    mock_producer.poll = MagicMock()
+    mock_producer.flush = MagicMock()
+    with patch("apps.events.producer._get_producer", return_value=mock_producer):
+        yield mock_producer
+
+
+@pytest.fixture(autouse=True)
+def mock_clickhouse():
+    """Disable ClickHouse in all tests. Returns a mock client."""
+    mock_client = MagicMock()
+    mock_client.insert = MagicMock()
+    mock_client.query = MagicMock(return_value=MagicMock(result_rows=[]))
+    mock_client.command = MagicMock()
+    with patch("apps.events.clickhouse.get_clickhouse_client", return_value=mock_client):
+        yield mock_client
 
 
 @pytest.fixture
