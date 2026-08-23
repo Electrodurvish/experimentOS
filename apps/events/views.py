@@ -9,6 +9,7 @@ from apps.events.clickhouse import query_experiment_results
 from apps.events.producer import produce_conversion
 from apps.events.serializers import TrackEventSerializer
 from apps.experiments.models import Experiment
+from apps.stats.analyzer import analyze_experiment
 
 
 class TrackEventView(APIView):
@@ -55,8 +56,8 @@ class TrackEventView(APIView):
 
 class ExperimentResultsView(APIView):
     """
-    Dashboard endpoint for experiment analytics results.
-    Queries ClickHouse for per-variant exposure and conversion data.
+    Dashboard endpoint for experiment analytics with statistical analysis.
+    Queries ClickHouse for raw data, then runs statistical tests.
 
     GET /api/v1/experiments/{id}/results/
     """
@@ -71,10 +72,70 @@ class ExperimentResultsView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        variants = query_experiment_results(str(experiment.id))
+        raw_variants = query_experiment_results(str(experiment.id))
+        analysis = analyze_experiment(raw_variants)
 
         return Response({
             "experiment_id": str(experiment.id),
             "experiment_key": experiment.key,
-            "variants": variants,
+            "variants": analysis["variants"],
+            "srm": analysis["srm"],
+            "recommended_sample_size_per_variant": (
+                analysis["sample_size"]["recommended_per_variant"]
+                if analysis["sample_size"] else 0
+            ),
+        })
+
+
+class SRMCheckView(APIView):
+    """
+    Dedicated SRM (Sample Ratio Mismatch) check endpoint.
+
+    GET /api/v1/experiments/{id}/results/srm/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, experiment_id):
+        try:
+            experiment = Experiment.objects.get(id=experiment_id)
+        except Experiment.DoesNotExist:
+            return Response(
+                {"detail": "Experiment not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        raw_variants = query_experiment_results(str(experiment.id))
+        analysis = analyze_experiment(raw_variants)
+
+        srm = analysis.get("srm")
+        if not srm:
+            return Response({
+                "experiment_id": str(experiment.id),
+                "message": "No data available for SRM check.",
+            })
+
+        message = "No Sample Ratio Mismatch detected."
+        if srm["is_mismatch"]:
+            observed = srm["observed_counts"]
+            expected = srm["expected_proportions"]
+            total = sum(observed.values()) if observed else 0
+            observed_pcts = {
+                k: round(v / total * 100) if total > 0 else 0
+                for k, v in observed.items()
+            }
+            expected_pcts = {k: round(v * 100) for k, v in expected.items()}
+            message = (
+                f"Sample Ratio Mismatch detected. "
+                f"Expected {'/'.join(str(v) for v in expected_pcts.values())}, "
+                f"observed {'/'.join(str(v) for v in observed_pcts.values())}."
+            )
+
+        return Response({
+            "experiment_id": str(experiment.id),
+            "chi_squared": srm["chi_squared"],
+            "p_value": srm["p_value"],
+            "is_mismatch": srm["is_mismatch"],
+            "expected_proportions": srm["expected_proportions"],
+            "observed_counts": srm["observed_counts"],
+            "message": message,
         })

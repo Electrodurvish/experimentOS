@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "apps.engine",
     "apps.audit",
     "apps.events",
+    "apps.stats",
 ]
 
 MIDDLEWARE = [
