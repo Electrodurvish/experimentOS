@@ -156,3 +156,32 @@ class TestQueryExperimentResults:
 
         mock_clickhouse.query.side_effect = Exception("down")
         assert query_experiment_results(running_experiment.id) == {}
+
+
+class TestParseEventTime:
+    def test_iso_with_offset_becomes_naive_utc(self):
+        from datetime import datetime
+
+        from apps.events.clickhouse import parse_event_time
+
+        assert parse_event_time("2026-09-01T12:30:00+05:30") == datetime(2026, 9, 1, 7, 0, 0)
+        assert parse_event_time("2026-09-01T07:00:00.123Z") == datetime(2026, 9, 1, 7, 0, 0)
+
+    def test_garbage_becomes_now(self):
+        from datetime import datetime
+
+        from apps.events.clickhouse import parse_event_time
+
+        value = parse_event_time("not a date")
+        assert isinstance(value, datetime) and value.tzinfo is None
+
+    def test_inserts_send_datetime_objects(self, mock_clickhouse):
+        from datetime import datetime
+
+        from apps.events.clickhouse import insert_conversion, insert_exposure
+
+        insert_exposure({"event_id": "e1", "user_id": "u1", "timestamp": "2026-09-01T07:00:00Z"})
+        insert_conversion({"event_id": "c1", "user_id": "u1", "timestamp": "2026-09-01T07:00:00Z"})
+        for call in mock_clickhouse.insert.call_args_list:
+            row = call.args[1][0]
+            assert isinstance(row[-1], datetime)

@@ -20,7 +20,7 @@ Telemetry data is ingested via API and stored in ClickHouse.
 
 import logging
 
-from apps.events.clickhouse import get_clickhouse_client
+from apps.events.clickhouse import get_clickhouse_client, parse_event_time
 
 logger = logging.getLogger(__name__)
 
@@ -61,16 +61,7 @@ def ingest_telemetry(experiment_id, variant_key, metric_name, metric_value, even
         logger.warning("ClickHouse not available, skipping telemetry ingest")
         return
 
-    from datetime import datetime, timezone
-
-    if event_time and isinstance(event_time, str):
-        try:
-            dt = datetime.fromisoformat(event_time.replace("Z", "+00:00"))
-            ts = dt.strftime("%Y-%m-%d %H:%M:%S")
-        except (ValueError, TypeError):
-            ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    ts = parse_event_time(event_time)
 
     try:
         client.insert(

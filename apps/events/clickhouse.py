@@ -32,6 +32,27 @@ def get_clickhouse_client():
         return None
 
 
+def parse_event_time(value):
+    """
+    Normalize an event timestamp to a naive UTC datetime, which is what
+    clickhouse-connect expects for DateTime columns (strings are rejected).
+    Accepts ISO-8601 strings (with or without offset / trailing Z) and datetimes;
+    anything unparseable becomes "now".
+    """
+    from datetime import datetime, timezone
+
+    if isinstance(value, str) and value:
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            value = None
+    if not isinstance(value, datetime):
+        return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.replace(microsecond=0)
+
+
 EXPOSURES_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS experiment_exposures (
     event_id String,
@@ -78,18 +99,7 @@ def insert_exposure(event):
         logger.warning("ClickHouse not available, skipping exposure insert")
         return
 
-    from datetime import datetime, timezone
-
-    timestamp = event.get("timestamp", "")
-    if isinstance(timestamp, str):
-        # Parse ISO format, strip timezone info for ClickHouse DateTime
-        try:
-            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-            event_time = dt.strftime("%Y-%m-%d %H:%M:%S")
-        except (ValueError, TypeError):
-            event_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        event_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    event_time = parse_event_time(event.get("timestamp"))
 
     row = [[
         event["event_id"],
@@ -123,17 +133,7 @@ def insert_conversion(event):
         logger.warning("ClickHouse not available, skipping conversion insert")
         return
 
-    from datetime import datetime, timezone
-
-    timestamp = event.get("timestamp", "")
-    if isinstance(timestamp, str):
-        try:
-            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-            event_time = dt.strftime("%Y-%m-%d %H:%M:%S")
-        except (ValueError, TypeError):
-            event_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        event_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    event_time = parse_event_time(event.get("timestamp"))
 
     metadata_str = json.dumps(event.get("metadata", {}))
 

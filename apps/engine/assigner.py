@@ -290,14 +290,17 @@ def _find_variant_by_key(version, variant_key):
 
 
 def _record_assignment(experiment, version, user_id, variant, bucket, context):
-    """Record assignment in PostgreSQL."""
+    """
+    Record assignment in PostgreSQL. Uses raw IDs because on cache hits the
+    experiment/version/variant are lightweight stand-ins, not ORM instances.
+    """
     try:
         Assignment.objects.update_or_create(
             user_id=user_id,
-            experiment=experiment,
-            version=version,
+            experiment_id=experiment.id,
+            version_id=version.id,
             defaults={
-                "variant": variant,
+                "variant_id": variant.id,
                 "bucket": bucket,
                 "context": context,
             },
