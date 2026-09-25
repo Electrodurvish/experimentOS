@@ -1,8 +1,10 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
-from rest_framework import status, viewsets
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from apps.accounts.schema import error_response
 from apps.audit.models import AuditAction
 from apps.audit.service import record_audit
 from apps.common.exceptions import InvalidTransitionError
@@ -34,7 +36,25 @@ from apps.organizations.permissions import (
     project_organization_id,
 )
 
+TransitionReasonSerializer = inline_serializer(
+    name="TransitionReason",
+    fields={"reason": serializers.CharField(required=False, help_text="Optional reason recorded in the audit log.")},
+)
 
+TRANSITION_RESPONSES = {
+    200: ExperimentListSerializer,
+    400: error_response("The transition is not allowed from the current status."),
+    409: error_response("Another transition is in progress."),
+}
+
+
+@extend_schema_view(
+    list=extend_schema(summary="List experiments", tags=["Experiments"]),
+    retrieve=extend_schema(summary="Get an experiment", tags=["Experiments"]),
+    update=extend_schema(summary="Replace an experiment's editable fields", tags=["Experiments"]),
+    partial_update=extend_schema(summary="Update an experiment's editable fields", tags=["Experiments"]),
+    destroy=extend_schema(summary="Delete an experiment", tags=["Experiments"]),
+)
 class ExperimentViewSet(viewsets.ModelViewSet):
     filterset_fields = ["project", "status", "experiment_type", "owner"]
     search_fields = ["key", "name"]
@@ -66,6 +86,12 @@ class ExperimentViewSet(viewsets.ModelViewSet):
             return ExperimentCreateSerializer
         return ExperimentListSerializer
 
+    @extend_schema(
+        summary="Create an experiment (version 1 is created automatically)",
+        tags=["Experiments"],
+        request=ExperimentCreateSerializer,
+        responses={201: ExperimentListSerializer},
+    )
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -109,6 +135,12 @@ class ExperimentViewSet(viewsets.ModelViewSet):
             new_value={k: str(v) for k, v in serializer.validated_data.items()},
         )
 
+    @extend_schema(
+        summary="Transition an experiment to a new status",
+        tags=["Experiments"],
+        request=TransitionSerializer,
+        responses=TRANSITION_RESPONSES,
+    )
     @action(detail=True, methods=["post"])
     def transition(self, request, pk=None):
         experiment = self.get_object()
@@ -116,11 +148,23 @@ class ExperimentViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         return self._transition(experiment, serializer.validated_data["status"], request)
 
+    @extend_schema(
+        summary="Start or resume an experiment",
+        tags=["Experiments"],
+        request=TransitionReasonSerializer,
+        responses=TRANSITION_RESPONSES,
+    )
     @action(detail=True, methods=["post"])
     def start(self, request, pk=None):
         """Start (or resume) an experiment. APPROVED/PAUSED → RUNNING."""
         return self._transition(self.get_object(), ExperimentStatus.RUNNING, request)
 
+    @extend_schema(
+        summary="Pause a running experiment",
+        tags=["Experiments"],
+        request=TransitionReasonSerializer,
+        responses=TRANSITION_RESPONSES,
+    )
     @action(detail=True, methods=["post"])
     def pause(self, request, pk=None):
         """Pause a running experiment. RUNNING → PAUSED."""
@@ -150,6 +194,15 @@ class ExperimentViewSet(viewsets.ModelViewSet):
 
         return Response(ExperimentListSerializer(experiment).data)
 
+    @extend_schema(
+        summary="Create a new experiment version with variants and targeting",
+        tags=["Experiments"],
+        request=VersionCreateSerializer,
+        responses={
+            201: ExperimentVersionSerializer,
+            409: error_response("Another version creation is in progress."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="versions")
     def create_version(self, request, pk=None):
         experiment = self.get_object()
@@ -218,6 +271,12 @@ class ExperimentViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(
+        summary="List an experiment's versions",
+        tags=["Experiments"],
+        filters=False,
+        responses=ExperimentVersionSerializer(many=True),
+    )
     @action(detail=True, methods=["get"])
     def versions(self, request, pk=None):
         experiment = self.get_object()

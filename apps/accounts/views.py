@@ -1,9 +1,11 @@
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.accounts.models import APIKey
+from apps.accounts.schema import error_response
 from apps.accounts.serializers import (
     APIKeyCreateSerializer,
     APIKeyResponseSerializer,
@@ -17,12 +19,14 @@ from apps.organizations.models import Project, Role
 from apps.organizations.permissions import has_org_role
 
 
+@extend_schema_view(post=extend_schema(summary="Register a new user account", tags=["Auth"]))
 class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
     throttle_classes = [AuthRateThrottle]
 
 
+@extend_schema_view(post=extend_schema(summary="Obtain a JWT access/refresh token pair", tags=["Auth"]))
 class ThrottledTokenObtainPairView(TokenObtainPairView):
     throttle_classes = [AuthRateThrottle]
 
@@ -36,6 +40,7 @@ class ThrottledTokenObtainPairView(TokenObtainPairView):
         )
 
 
+@extend_schema_view(get=extend_schema(summary="Get the current user and their memberships", tags=["Auth"]))
 class MeView(generics.RetrieveAPIView):
     serializer_class = UserSerializer
 
@@ -45,6 +50,17 @@ class MeView(generics.RetrieveAPIView):
 
 class APIKeyCreateView(APIView):
 
+    @extend_schema(
+        summary="Create a project API key",
+        description="Requires the ADMIN role in the project's organization. The raw key is returned only once.",
+        tags=["Auth"],
+        request=APIKeyCreateSerializer,
+        responses={
+            201: APIKeyResponseSerializer,
+            403: error_response("Caller lacks the ADMIN role."),
+            404: error_response("Project not found."),
+        },
+    )
     def post(self, request):
         serializer = APIKeyCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -86,6 +102,11 @@ class APIKeyCreateView(APIView):
         response_data["key"] = raw_key
         return Response(response_data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="List active API keys created by the current user",
+        tags=["Auth"],
+        responses=APIKeyResponseSerializer(many=True),
+    )
     def get(self, request):
         keys = APIKey.objects.filter(created_by=request.user, is_active=True)
         serializer = APIKeyResponseSerializer(keys, many=True)
@@ -97,6 +118,15 @@ class APIKeyRevokeView(APIView):
     DELETE /api/v1/auth/api-keys/{id}/  Revoke an API key (ADMIN of its organization).
     """
 
+    @extend_schema(
+        summary="Revoke an API key",
+        tags=["Auth"],
+        responses={
+            204: OpenApiResponse(description="API key revoked."),
+            403: error_response("Caller lacks the ADMIN role."),
+            404: error_response("API key not found."),
+        },
+    )
     def delete(self, request, key_id):
         api_key = APIKey.objects.select_related("project__organization").filter(id=key_id).first()
         if api_key is None or not has_org_role(request.user, api_key.project.organization_id, Role.VIEWER):

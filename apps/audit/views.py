@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import viewsets
 
 from apps.audit.models import AuditLog
@@ -5,6 +6,10 @@ from apps.audit.serializers import AuditLogSerializer
 from apps.organizations.permissions import NO_ORGANIZATION, accessible_organization_ids
 
 
+@extend_schema_view(
+    list=extend_schema(summary="List audit log entries for accessible organizations", tags=["Audit"]),
+    retrieve=extend_schema(summary="Get an audit log entry", tags=["Audit"]),
+)
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AuditLogSerializer
     filterset_fields = ["experiment", "organization", "action", "actor"]

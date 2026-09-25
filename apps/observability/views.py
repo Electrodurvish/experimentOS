@@ -1,7 +1,10 @@
-from rest_framework import permissions, status
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.schema import API_KEY_AUTH, error_response
 from apps.common.throttling import APIKeyRateThrottle
 from apps.experiments.models import Experiment
 from apps.observability.serializers import TelemetryBatchSerializer, TelemetryIngestSerializer
@@ -10,6 +13,35 @@ from apps.observability.telemetry import (
     detect_anomalies,
     ingest_telemetry,
     query_variant_telemetry,
+)
+
+API_KEY_REQUIRED = error_response("API key authentication required.")
+
+TelemetryAcceptedSerializer = inline_serializer(
+    name="TelemetryAccepted",
+    fields={"status": serializers.CharField()},
+)
+
+TelemetryBatchAcceptedSerializer = inline_serializer(
+    name="TelemetryBatchAccepted",
+    fields={"status": serializers.CharField(), "ingested": serializers.IntegerField()},
+)
+
+UnknownExperimentsSerializer = inline_serializer(
+    name="UnknownExperiments",
+    fields={"detail": serializers.CharField(), "experiment_ids": serializers.ListField(child=serializers.UUIDField())},
+)
+
+ProductionImpactSerializer = inline_serializer(
+    name="ProductionImpact",
+    fields={
+        "experiment_id": serializers.UUIDField(),
+        "experiment_key": serializers.CharField(),
+        "telemetry_summary": serializers.JSONField(required=False, help_text="Per-variant telemetry aggregates."),
+        "impact": serializers.JSONField(help_text="Per-variant, per-metric impact versus control."),
+        "anomalies": serializers.ListField(child=serializers.JSONField()),
+        "message": serializers.CharField(required=False, help_text="Present when no telemetry is available."),
+    },
 )
 
 
@@ -43,6 +75,17 @@ class TelemetryIngestView(APIView):
     throttle_classes = [APIKeyRateThrottle]
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        summary="Ingest a production telemetry data point (SDK)",
+        tags=["Observability"],
+        auth=API_KEY_AUTH,
+        request=TelemetryIngestSerializer,
+        responses={
+            202: TelemetryAcceptedSerializer,
+            401: API_KEY_REQUIRED,
+            404: error_response("Experiment not found in the API key's project."),
+        },
+    )
     def post(self, request):
         project, error = _require_project(request)
         if error:
@@ -78,6 +121,13 @@ class TelemetryBatchIngestView(APIView):
     throttle_classes = [APIKeyRateThrottle]
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        summary="Ingest a batch of production telemetry data points (SDK)",
+        tags=["Observability"],
+        auth=API_KEY_AUTH,
+        request=TelemetryBatchSerializer,
+        responses={202: TelemetryBatchAcceptedSerializer, 401: API_KEY_REQUIRED, 404: UnknownExperimentsSerializer},
+    )
     def post(self, request):
         project, error = _require_project(request)
         if error:
@@ -116,6 +166,17 @@ class ProductionImpactView(APIView):
     GET /api/v1/experiments/{id}/production-impact/
     """
 
+    @extend_schema(
+        summary="Analyze production impact of variants versus control",
+        tags=["Observability"],
+        parameters=[
+            OpenApiParameter(
+                "control", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False,
+                description='Control variant key (default "control").',
+            ),
+        ],
+        responses={200: ProductionImpactSerializer, 404: error_response("Experiment not found.")},
+    )
     def get(self, request, experiment_id):
         try:
             experiment = Experiment.objects.get(id=experiment_id)

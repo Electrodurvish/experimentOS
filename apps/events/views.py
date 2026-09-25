@@ -1,16 +1,49 @@
 import uuid
 from datetime import datetime, timezone
 
-from rest_framework import permissions, status
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.schema import API_KEY_AUTH, error_response
 from apps.common.throttling import APIKeyRateThrottle
 from apps.events.clickhouse import query_experiment_results
 from apps.events.producer import produce_conversion
 from apps.events.serializers import TrackEventSerializer
 from apps.experiments.models import Experiment
 from apps.stats.analyzer import analyze_experiment
+
+TrackEventResponseSerializer = inline_serializer(
+    name="TrackEventAccepted",
+    fields={"status": serializers.CharField(), "event_id": serializers.CharField()},
+)
+
+ExperimentResultsResponseSerializer = inline_serializer(
+    name="ExperimentResults",
+    fields={
+        "experiment_id": serializers.UUIDField(),
+        "experiment_key": serializers.CharField(),
+        "variants": serializers.DictField(
+            child=serializers.JSONField(), help_text="Per-variant statistics keyed by variant key.",
+        ),
+        "srm": serializers.JSONField(allow_null=True, help_text="Sample ratio mismatch check, if available."),
+        "recommended_sample_size_per_variant": serializers.IntegerField(),
+    },
+)
+
+SRMCheckResponseSerializer = inline_serializer(
+    name="SRMCheck",
+    fields={
+        "experiment_id": serializers.UUIDField(),
+        "chi_squared": serializers.FloatField(required=False),
+        "p_value": serializers.FloatField(required=False),
+        "is_mismatch": serializers.BooleanField(required=False),
+        "expected_proportions": serializers.DictField(child=serializers.FloatField(), required=False),
+        "observed_counts": serializers.DictField(child=serializers.IntegerField(), required=False),
+        "message": serializers.CharField(),
+    },
+)
 
 
 class TrackEventView(APIView):
@@ -23,6 +56,13 @@ class TrackEventView(APIView):
     throttle_classes = [APIKeyRateThrottle]
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        summary="Track a conversion event (SDK)",
+        tags=["Events"],
+        auth=API_KEY_AUTH,
+        request=TrackEventSerializer,
+        responses={202: TrackEventResponseSerializer, 401: error_response("API key authentication required.")},
+    )
     def post(self, request):
         project = getattr(request, "project", None)
         if not project:
@@ -64,6 +104,11 @@ class ExperimentResultsView(APIView):
     GET /api/v1/experiments/{id}/results/
     """
 
+    @extend_schema(
+        summary="Get experiment results with statistical analysis",
+        tags=["Analytics"],
+        responses={200: ExperimentResultsResponseSerializer, 404: error_response("Experiment not found.")},
+    )
     def get(self, request, experiment_id):
         try:
             experiment = Experiment.objects.get(id=experiment_id)
@@ -95,6 +140,12 @@ class SRMCheckView(APIView):
     GET /api/v1/experiments/{id}/results/srm/
     """
 
+    @extend_schema(
+        summary="Check for sample ratio mismatch",
+        description="Statistic fields are omitted when there is no data yet.",
+        tags=["Analytics"],
+        responses={200: SRMCheckResponseSerializer, 404: error_response("Experiment not found.")},
+    )
     def get(self, request, experiment_id):
         try:
             experiment = Experiment.objects.get(id=experiment_id)

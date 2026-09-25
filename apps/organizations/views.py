@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, viewsets
 from rest_framework.exceptions import ValidationError
 
@@ -17,6 +19,14 @@ from apps.organizations.serializers import MembershipSerializer, OrganizationSer
 User = get_user_model()
 
 
+@extend_schema_view(
+    list=extend_schema(summary="List organizations the user belongs to", tags=["Organizations"]),
+    create=extend_schema(summary="Create an organization (creator becomes ADMIN)", tags=["Organizations"]),
+    retrieve=extend_schema(summary="Get an organization", tags=["Organizations"]),
+    update=extend_schema(summary="Replace an organization", tags=["Organizations"]),
+    partial_update=extend_schema(summary="Update an organization", tags=["Organizations"]),
+    destroy=extend_schema(summary="Delete an organization", tags=["Organizations"]),
+)
 class OrganizationViewSet(viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     filterset_fields = ["name"]
@@ -47,6 +57,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         )
 
 
+@extend_schema_view(
+    list=extend_schema(summary="List projects", tags=["Organizations"]),
+    create=extend_schema(summary="Create a project", tags=["Organizations"]),
+    retrieve=extend_schema(summary="Get a project", tags=["Organizations"]),
+    update=extend_schema(summary="Replace a project", tags=["Organizations"]),
+    partial_update=extend_schema(summary="Update a project", tags=["Organizations"]),
+    destroy=extend_schema(summary="Delete a project", tags=["Organizations"]),
+)
 class ProjectViewSet(viewsets.ModelViewSet):
     serializer_class = ProjectSerializer
     filterset_fields = ["organization"]
@@ -82,6 +100,18 @@ class ProjectViewSet(viewsets.ModelViewSet):
             serializer.save()
 
 
+_MEMBERSHIP_ID = OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Membership id.")
+
+
+@extend_schema_view(
+    list=extend_schema(summary="List organization members", tags=["Organizations"], filters=False),
+    create=extend_schema(summary="Add a member to the organization", tags=["Organizations"]),
+    update=extend_schema(summary="Replace a member's role", tags=["Organizations"], parameters=[_MEMBERSHIP_ID]),
+    partial_update=extend_schema(summary="Change a member's role", tags=["Organizations"],
+                                 parameters=[_MEMBERSHIP_ID]),
+    destroy=extend_schema(summary="Remove a member from the organization", tags=["Organizations"],
+                          parameters=[_MEMBERSHIP_ID]),
+)
 class MembershipViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.UpdateModelMixin,
                         mixins.DestroyModelMixin, viewsets.GenericViewSet):
     """

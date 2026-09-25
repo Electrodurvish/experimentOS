@@ -14,7 +14,7 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["id", "email", "username", "first_name", "last_name", "memberships", "created_at"]
         read_only_fields = ["id", "memberships", "created_at"]
 
-    def get_memberships(self, obj):
+    def get_memberships(self, obj) -> list[dict]:
         return [
             {"organization_id": str(m.organization_id), "organization_name": m.organization.name, "role": m.role}
             for m in obj.memberships.select_related("organization")

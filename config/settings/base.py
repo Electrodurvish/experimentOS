@@ -135,6 +135,7 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "ExperimentOS API",
     "DESCRIPTION": "Intelligent Experimentation & Release Platform",
     "VERSION": "1.0.0",
+    "COMPONENT_SPLIT_REQUEST": True,
 }
 
 # CORS

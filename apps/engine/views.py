@@ -1,10 +1,12 @@
 import time
 from dataclasses import asdict
 
-from rest_framework import permissions, status
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.schema import API_KEY_AUTH, error_response
 from apps.common.throttling import APIKeyRateThrottle
 from apps.engine.assigner import evaluate_experiment
 from apps.engine.cache import (
@@ -26,6 +28,42 @@ from apps.observability.tracing import add_experiment_attributes, experiment_spa
 from apps.organizations.models import Role
 from apps.organizations.permissions import NO_ORGANIZATION, accessible_organization_ids
 
+EvaluateResponseSerializer = inline_serializer(
+    name="EvaluateResponse",
+    fields={
+        "evaluations": serializers.DictField(
+            child=EvaluationResultSerializer(),
+            help_text="Evaluation result keyed by experiment key.",
+        ),
+    },
+)
+
+DebugResponseSerializer = inline_serializer(
+    name="EvaluateDebugResponse",
+    fields={
+        "experiment": inline_serializer(
+            name="DebugExperiment",
+            fields={
+                "id": serializers.UUIDField(),
+                "key": serializers.CharField(),
+                "status": serializers.CharField(),
+            },
+        ),
+        "version": inline_serializer(
+            name="DebugVersion",
+            fields={
+                "id": serializers.UUIDField(),
+                "version_number": serializers.IntegerField(),
+                "traffic_allocation": serializers.IntegerField(),
+            },
+            allow_null=True,
+        ),
+        "cache_status": serializers.ChoiceField(choices=["hit", "miss"]),
+        "evaluation_steps": DebugStepSerializer(many=True),
+        "result": EvaluationResultSerializer(),
+    },
+)
+
 
 class EvaluateView(APIView):
     """
@@ -37,6 +75,13 @@ class EvaluateView(APIView):
     throttle_classes = [APIKeyRateThrottle]
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        summary="Evaluate experiments for a user (SDK)",
+        tags=["Evaluation"],
+        auth=API_KEY_AUTH,
+        request=EvaluateRequestSerializer,
+        responses={200: EvaluateResponseSerializer, 401: error_response("API key authentication required.")},
+    )
     def post(self, request):
         project = getattr(request, "project", None)
         if not project:
@@ -144,6 +189,16 @@ class EvaluateDebugView(APIView):
     def get_rbac_organization_id(self):
         return NO_ORGANIZATION  # the lookup below is restricted to the user's organizations
 
+    @extend_schema(
+        summary="Trace an evaluation step by step (dry run)",
+        tags=["Evaluation"],
+        request=DebugRequestSerializer,
+        responses={
+            200: DebugResponseSerializer,
+            400: error_response("Experiment key is ambiguous across projects; pass project_id."),
+            404: error_response("Experiment not found."),
+        },
+    )
     def post(self, request):
         serializer = DebugRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

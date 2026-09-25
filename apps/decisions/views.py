@@ -1,8 +1,15 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import generics, status
+from drf_spectacular.utils import (
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_view,
+    inline_serializer,
+)
+from rest_framework import generics, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.schema import error_response
 from apps.decisions.context import gather_inputs, policy_dict
 from apps.decisions.engine import decide
 from apps.decisions.models import Guardrail, RolloutAction, RolloutPolicy
@@ -28,6 +35,89 @@ LOCK_CONFLICT = Response(
 )
 
 
+RolloutEventSerializer = inline_serializer(
+    name="RolloutEvent",
+    fields={
+        "experiment": serializers.CharField(help_text="Experiment key."),
+        "action": serializers.CharField(),
+        "from": serializers.FloatField(help_text="Previous rollout, in percent."),
+        "to": serializers.FloatField(help_text="New rollout, in percent."),
+        "reason": serializers.CharField(),
+        "automated": serializers.BooleanField(),
+        "timestamp": serializers.DateTimeField(),
+    },
+)
+
+RolloutUnchangedSerializer = inline_serializer(
+    name="RolloutUnchanged",
+    fields={
+        "detail": serializers.CharField(),
+        "rollout_percentage": serializers.IntegerField(),
+    },
+)
+
+RolloutChangeResultSerializer = PolymorphicProxySerializer(
+    component_name="RolloutChangeResult",
+    serializers=[RolloutEventSerializer, RolloutUnchangedSerializer],
+    resource_type_field_name=None,
+)
+
+RolloutStateSerializer = inline_serializer(
+    name="RolloutState",
+    fields={
+        "experiment_id": serializers.UUIDField(),
+        "experiment_key": serializers.CharField(),
+        "rollout_percentage": serializers.IntegerField(help_text="Basis points (0-10000)."),
+        "policy": inline_serializer(
+            name="EffectiveRolloutPolicy",
+            fields={
+                "stages": serializers.ListField(child=serializers.IntegerField()),
+                "rollback_percentage": serializers.IntegerField(),
+                "min_health_score": serializers.IntegerField(),
+            },
+        ),
+        "history": RolloutChangeSerializer(many=True),
+    },
+)
+
+DecisionPreviewSerializer = inline_serializer(
+    name="DecisionPreview",
+    fields={
+        "experiment_id": serializers.UUIDField(),
+        "experiment_key": serializers.CharField(),
+        "rollout_percentage": serializers.IntegerField(),
+        "recommendation": serializers.CharField(),
+        "confidence": serializers.FloatField(),
+        "confidence_label": serializers.CharField(),
+        "summary": serializers.CharField(),
+        "evidence": serializers.ListField(child=serializers.JSONField()),
+        "checks": serializers.ListField(child=serializers.JSONField()),
+        "target_percentage": serializers.IntegerField(allow_null=True),
+    },
+)
+
+
+class AppliedDecisionSerializer(DecisionSerializer):
+    """Schema-only: a persisted decision plus whether its action was applied."""
+    applied = serializers.BooleanField()
+
+    class Meta(DecisionSerializer.Meta):
+        fields = [*DecisionSerializer.Meta.fields, "applied"]
+        read_only_fields = fields
+
+
+AnomaliesSerializer = inline_serializer(
+    name="ExperimentAnomalies",
+    fields={
+        "experiment_id": serializers.UUIDField(),
+        "experiment_key": serializers.CharField(),
+        "anomalies": serializers.ListField(child=serializers.JSONField()),
+    },
+)
+
+LOCK_CONFLICT_RESPONSE = error_response("Another rollout change is in progress.")
+
+
 def _experiment(experiment_id):
     return get_object_or_404(
         Experiment.objects.select_related("current_version", "project").prefetch_related(
@@ -37,6 +127,10 @@ def _experiment(experiment_id):
     )
 
 
+@extend_schema_view(
+    get=extend_schema(summary="List an experiment's guardrails", tags=["Decisions"], filters=False),
+    post=extend_schema(summary="Create a guardrail", tags=["Decisions"]),
+)
 class GuardrailListCreateView(generics.ListCreateAPIView):
     """
     GET/POST /api/v1/experiments/{id}/guardrails/
@@ -51,6 +145,12 @@ class GuardrailListCreateView(generics.ListCreateAPIView):
         serializer.save(experiment=_experiment(self.kwargs["experiment_id"]))
 
 
+@extend_schema_view(
+    get=extend_schema(summary="Get a guardrail", tags=["Decisions"]),
+    put=extend_schema(summary="Replace a guardrail", tags=["Decisions"]),
+    patch=extend_schema(summary="Update a guardrail", tags=["Decisions"]),
+    delete=extend_schema(summary="Delete a guardrail", tags=["Decisions"]),
+)
 class GuardrailDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     GET/PATCH/DELETE /api/v1/experiments/{id}/guardrails/{guardrail_id}/
@@ -67,11 +167,19 @@ class RolloutPolicyView(APIView):
     GET/PUT /api/v1/experiments/{id}/rollout-policy/
     """
 
+    @extend_schema(summary="Get the rollout policy", tags=["Rollout"], responses=RolloutPolicySerializer)
     def get(self, request, experiment_id):
         experiment = _experiment(experiment_id)
         policy = RolloutPolicy.objects.filter(experiment=experiment).first() or RolloutPolicy(experiment=experiment)
         return Response(RolloutPolicySerializer(policy).data)
 
+    @extend_schema(
+        summary="Create or update the rollout policy",
+        description="Creates the policy if absent; otherwise applies a partial update.",
+        tags=["Rollout"],
+        request=RolloutPolicySerializer,
+        responses=RolloutPolicySerializer,
+    )
     def put(self, request, experiment_id):
         experiment = _experiment(experiment_id)
         policy = RolloutPolicy.objects.filter(experiment=experiment).first()
@@ -87,6 +195,11 @@ class RolloutView(APIView):
     POST /api/v1/experiments/{id}/rollout/  manual change {percentage, reason}
     """
 
+    @extend_schema(
+        summary="Get the current rollout, effective policy and change history",
+        tags=["Rollout"],
+        responses=RolloutStateSerializer,
+    )
     def get(self, request, experiment_id):
         experiment = _experiment(experiment_id)
         history = experiment.rollout_changes.select_related("experiment").all()[:50]
@@ -98,6 +211,12 @@ class RolloutView(APIView):
             "history": RolloutChangeSerializer(history, many=True).data,
         })
 
+    @extend_schema(
+        summary="Manually change the rollout percentage",
+        tags=["Rollout"],
+        request=RolloutUpdateSerializer,
+        responses={200: RolloutChangeResultSerializer, 409: LOCK_CONFLICT_RESPONSE},
+    )
     def post(self, request, experiment_id):
         experiment = _experiment(experiment_id)
         serializer = RolloutUpdateSerializer(data=request.data)
@@ -123,6 +242,16 @@ class RollbackView(APIView):
     Defaults to the rollout policy's rollback percentage.
     """
 
+    @extend_schema(
+        summary="Roll back the experiment's rollout",
+        tags=["Rollout"],
+        request=RollbackSerializer,
+        responses={
+            200: RolloutEventSerializer,
+            400: error_response("Rollback target is not below the current rollout."),
+            409: LOCK_CONFLICT_RESPONSE,
+        },
+    )
     def post(self, request, experiment_id):
         experiment = _experiment(experiment_id)
         serializer = RollbackSerializer(data=request.data)
@@ -153,6 +282,11 @@ class DecisionView(APIView):
     rbac_write_role = Role.ANALYST
 
 
+    @extend_schema(
+        summary="Preview the automated decision (not persisted)",
+        tags=["Decisions"],
+        responses=DecisionPreviewSerializer,
+    )
     def get(self, request, experiment_id):
         experiment = _experiment(experiment_id)
         inputs = gather_inputs(experiment)
@@ -164,6 +298,17 @@ class DecisionView(APIView):
             **result.to_dict(),
         })
 
+    @extend_schema(
+        summary="Run and persist a decision, optionally applying it",
+        description="Applying the decision requires the EXPERIMENT_MANAGER role.",
+        tags=["Decisions"],
+        request=DecisionRequestSerializer,
+        responses={
+            201: AppliedDecisionSerializer,
+            403: error_response("Caller lacks the EXPERIMENT_MANAGER role."),
+            409: LOCK_CONFLICT_RESPONSE,
+        },
+    )
     def post(self, request, experiment_id):
         experiment = _experiment(experiment_id)
         serializer = DecisionRequestSerializer(data=request.data)
@@ -191,6 +336,9 @@ class DecisionView(APIView):
         )
 
 
+@extend_schema_view(
+    get=extend_schema(summary="List an experiment's decision history", tags=["Decisions"], filters=False),
+)
 class DecisionHistoryView(generics.ListAPIView):
     """
     GET /api/v1/experiments/{id}/decisions/
@@ -207,6 +355,11 @@ class AnomalyView(APIView):
     Harmful telemetry anomalies for treatment variants.
     """
 
+    @extend_schema(
+        summary="List harmful telemetry anomalies for treatment variants",
+        tags=["Observability"],
+        responses=AnomaliesSerializer,
+    )
     def get(self, request, experiment_id):
         from apps.decisions.context import control_and_proportions, detect_experiment_anomalies
         from apps.observability.telemetry import query_variant_telemetry

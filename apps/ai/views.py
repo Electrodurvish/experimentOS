@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -22,6 +23,56 @@ class QuestionSerializer(serializers.Serializer):
     segments = serializers.ListField(child=serializers.DictField(), required=False, default=list)
 
 
+_AI_META = {
+    "cited_evidence": serializers.ListField(child=serializers.CharField(), help_text="Evidence ids cited."),
+    "evidence": serializers.ListField(child=serializers.JSONField()),
+    "generated_by": serializers.CharField(),
+    "model": serializers.CharField(allow_null=True),
+}
+
+ExplainResponseSerializer = inline_serializer(
+    name="ExperimentExplanation",
+    fields={
+        "experiment_id": serializers.UUIDField(),
+        "experiment_key": serializers.CharField(),
+        "summary": serializers.CharField(),
+        "recommendation": serializers.CharField(),
+        "explanation": serializers.CharField(),
+        **_AI_META,
+    },
+)
+
+AskResponseSerializer = inline_serializer(
+    name="ExperimentAnswer",
+    fields={
+        "experiment_id": serializers.UUIDField(),
+        "experiment_key": serializers.CharField(),
+        "question": serializers.CharField(),
+        "answer": serializers.CharField(),
+        **_AI_META,
+    },
+)
+
+PortfolioResponseSerializer = inline_serializer(
+    name="PortfolioAnswer",
+    fields={
+        "question": serializers.CharField(),
+        "answer": serializers.CharField(),
+        "experiments": inline_serializer(
+            name="PortfolioAnswerExperiment",
+            fields={
+                "id": serializers.UUIDField(),
+                "key": serializers.CharField(),
+                "status": serializers.CharField(),
+            },
+            many=True,
+        ),
+        "generated_by": serializers.CharField(),
+        "model": serializers.CharField(allow_null=True),
+    },
+)
+
+
 class _AIView(APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "ai"
@@ -42,6 +93,11 @@ class ExplainView(_AIView):
     Evidence-based summary of the experiment.
     """
 
+    @extend_schema(
+        summary="Explain an experiment's result with cited evidence",
+        tags=["AI"],
+        responses=ExplainResponseSerializer,
+    )
     def get(self, request, experiment_id):
         experiment = self.get_experiment(experiment_id)
         bundle = build_experiment_evidence(experiment)
@@ -65,6 +121,12 @@ class AskView(_AIView):
     Root-cause and follow-up questions about one experiment.
     """
 
+    @extend_schema(
+        summary="Ask a root-cause or follow-up question about an experiment",
+        tags=["AI"],
+        request=QuestionSerializer,
+        responses=AskResponseSerializer,
+    )
     def post(self, request, experiment_id):
         serializer = QuestionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -89,6 +151,12 @@ class PortfolioQueryView(_AIView):
     Natural-language questions across experiments, e.g. "Which experiments were rolled back this week?"
     """
 
+    @extend_schema(
+        summary="Ask a natural-language question across experiments",
+        tags=["AI"],
+        request=QuestionSerializer,
+        responses=PortfolioResponseSerializer,
+    )
     def post(self, request):
         serializer = QuestionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

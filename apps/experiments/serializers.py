@@ -61,7 +61,7 @@ class ExperimentListSerializer(serializers.ModelSerializer):
             "allowed_transitions", "created_at", "updated_at",
         ]
 
-    def get_allowed_transitions(self, obj):
+    def get_allowed_transitions(self, obj) -> list[str]:
         from apps.experiments.state_machine import ExperimentStateMachine
         sm = ExperimentStateMachine(obj)
         return [s.value for s in sm.get_allowed_transitions()]
