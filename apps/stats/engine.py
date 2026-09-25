@@ -328,3 +328,36 @@ def required_sample_size(baseline_rate, mde, alpha=0.05, power=0.80):
 def is_significant(p_value, alpha=0.05):
     """Check if a p-value indicates statistical significance."""
     return p_value < alpha
+
+
+def mean_difference_test(mean_c, var_c, n_c, mean_t, var_t, n_t, confidence=0.95):
+    """
+    Welch-style test for a difference in means (e.g. revenue per user).
+
+    Uses the normal approximation to the t distribution, which is accurate for the
+    sample sizes experiments run at (hundreds of users per variant or more).
+
+    Returns dict with difference, relative lift (None if the control mean is 0),
+    CI on the difference, z (t) statistic and two-sided p-value.
+    """
+    if n_c < 2 or n_t < 2:
+        return {"difference": 0.0, "lift": None, "ci_lower": 0.0, "ci_upper": 0.0,
+                "z_score": 0.0, "p_value": 1.0}
+
+    difference = mean_t - mean_c
+    se = math.sqrt(var_c / n_c + var_t / n_t)
+    z_crit = _norm_ppf(1.0 - (1.0 - confidence) / 2.0)
+    if se == 0:
+        z, p = 0.0, 1.0 if difference == 0 else 0.0
+    else:
+        z = difference / se
+        p = 2.0 * (1.0 - _norm_cdf(abs(z)))
+
+    return {
+        "difference": round(difference, 6),
+        "lift": round(difference / mean_c, 6) if mean_c else None,
+        "ci_lower": round(difference - z_crit * se, 6),
+        "ci_upper": round(difference + z_crit * se, 6),
+        "z_score": round(z, 4),
+        "p_value": round(p, 6),
+    }

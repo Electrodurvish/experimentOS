@@ -244,3 +244,64 @@ def query_experiment_results(experiment_id, event_name=None):
             "conversion_rate": round(conversions / unique_users, 4) if unique_users else 0.0,
         }
     return variants
+
+
+METRIC_VALUES_QUERY = """
+    SELECT
+        e.variant_key,
+        count() AS users,
+        countIf(c.events > 0) AS converters,
+        sum(c.value) AS total_value,
+        sum(c.value * c.value) AS total_value_sq
+    FROM (
+        SELECT user_id, argMin(variant_key, event_time) AS variant_key, min(event_time) AS first_exposure
+        FROM experiment_exposures
+        WHERE experiment_id = {experiment_id:String}
+        GROUP BY user_id
+    ) AS e
+    LEFT JOIN (
+        SELECT
+            conv.user_id AS user_id,
+            count() AS events,
+            sum(conv.value) AS value
+        FROM conversion_events AS conv
+        INNER JOIN (
+            SELECT user_id, min(event_time) AS first_exposure
+            FROM experiment_exposures
+            WHERE experiment_id = {experiment_id:String}
+            GROUP BY user_id
+        ) AS fe ON conv.user_id = fe.user_id
+        WHERE conv.event_name = {event_name:String} AND conv.event_time >= fe.first_exposure
+        GROUP BY conv.user_id
+    ) AS c USING (user_id)
+    GROUP BY e.variant_key
+"""
+
+
+def query_metric_values(experiment_id, event_name):
+    """
+    Per-variant per-user aggregates for one event, counting only events at or after
+    each user's first exposure.
+
+    Returns {"variant_key": {"users", "converters", "total_value", "total_value_sq"}}
+    """
+    client = get_clickhouse_client()
+    if client is None:
+        return {}
+    try:
+        result = client.query(
+            METRIC_VALUES_QUERY,
+            parameters={"experiment_id": str(experiment_id), "event_name": event_name},
+        )
+    except Exception:
+        logger.warning("Failed to query metric values from ClickHouse", exc_info=True)
+        return {}
+    return {
+        row[0]: {
+            "users": row[1],
+            "converters": row[2],
+            "total_value": float(row[3] or 0.0),
+            "total_value_sq": float(row[4] or 0.0),
+        }
+        for row in result.result_rows
+    }

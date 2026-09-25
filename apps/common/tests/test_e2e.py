@@ -126,6 +126,16 @@ def test_full_experiment_flow(clickhouse, authenticated_client, project, api_key
     assert treatment["is_significant"] is True
     assert results["srm"]["is_mismatch"] is False
 
+    # 6b. Metrics engine: revenue per user (MEAN_VALUE) from the same events
+    assert client.post(f"/api/v1/experiments/{exp_id}/metrics/", {
+        "name": "Revenue", "event_name": "purchase", "metric_type": "SECONDARY", "aggregation": "MEAN_VALUE",
+    }, format="json").status_code == 201
+    [revenue] = client.get(f"/api/v1/experiments/{exp_id}/metrics/results/").data["metrics"]
+    rev_c, rev_t = revenue["variants"]["control"], revenue["variants"]["treatment"]
+    assert rev_c["value"] == pytest.approx(10 * control["conversion_rate"], rel=1e-3)
+    assert rev_t["value"] == pytest.approx(10 * treatment["conversion_rate"], rel=1e-3)
+    assert rev_t["is_significant"] is True
+
     # 7. Health and decision
     health = client.get(f"/api/v1/experiments/{exp_id}/health/").data["health"]
     assert health["dimensions"]["sample_ratio"]["score"] == 100

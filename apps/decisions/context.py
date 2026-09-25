@@ -15,6 +15,7 @@ from apps.observability.telemetry import (
     query_variant_telemetry,
 )
 from apps.stats.analyzer import analyze_experiment
+from apps.stats.metrics import analyze_metrics
 
 
 def policy_dict(experiment):
@@ -57,8 +58,10 @@ def gather_inputs(experiment, segments=None, interactions=None):
     telemetry = query_variant_telemetry(str(experiment.id))
     production_impact = analyze_production_impact(telemetry, control_key=control_key)
 
+    metric_results = analyze_metrics(experiment, control_key)
+
     guardrail_results = evaluate_guardrails(
-        experiment.guardrails.all(), telemetry, stats, control_key=control_key,
+        experiment.guardrails.all(), telemetry, stats, control_key=control_key, metric_results=metric_results,
     )
 
     segment_analysis = None
@@ -84,6 +87,7 @@ def gather_inputs(experiment, segments=None, interactions=None):
         "policy": policy_dict(experiment),
         "control_key": control_key,
         "stats": stats,
+        "metrics": metric_results,
         "health": health,
         "guardrails": guardrail_results,
         "telemetry": telemetry,
@@ -115,6 +119,7 @@ def decision_snapshot(inputs):
         "health_score": (inputs.get("health") or {}).get("overall_score"),
         "variants": (inputs.get("stats") or {}).get("variants"),
         "srm": (inputs.get("stats") or {}).get("srm"),
+        "metrics": inputs.get("metrics"),
         "guardrails": inputs.get("guardrails"),
         "production_impact": inputs.get("production_impact"),
         "anomaly_count": len(inputs.get("anomalies") or []),

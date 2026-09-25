@@ -9,13 +9,16 @@ Guardrails are evaluated per non-control variant against:
 from apps.decisions.models import GuardrailOperator, GuardrailSource
 
 
-def evaluate_guardrails(guardrails, telemetry_summary, stats_analysis, control_key="control"):
+def evaluate_guardrails(guardrails, telemetry_summary, stats_analysis, control_key="control", metric_results=None):
     """
     Args:
         guardrails: iterable of Guardrail instances (only active ones are evaluated).
         telemetry_summary: output of query_variant_telemetry().
         stats_analysis: output of analyze_experiment().
         control_key: control variant key.
+        metric_results: optional analyze_metrics() output; a CONVERSION-source guardrail whose
+            metric_name matches a configured metric's name uses that metric's per-variant value
+            (e.g. "Refund rate"); metric_name "conversion_rate" uses the primary analysis.
 
     Returns list of dicts, one per (guardrail, variant):
         {guardrail_id, name, metric_name, source, operator, threshold, action,
@@ -28,7 +31,11 @@ def evaluate_guardrails(guardrails, telemetry_summary, stats_analysis, control_k
             continue
 
         if guardrail.source == GuardrailSource.CONVERSION:
-            per_variant = _conversion_values(stats_analysis)
+            named = next((m for m in metric_results or [] if m["name"] == guardrail.metric_name), None)
+            if named is not None:
+                per_variant = {k: v["value"] for k, v in named["variants"].items() if v.get("users")}
+            else:
+                per_variant = _conversion_values(stats_analysis)
         else:
             per_variant = _telemetry_values(telemetry_summary, guardrail.metric_name)
 

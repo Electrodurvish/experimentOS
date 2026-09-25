@@ -9,6 +9,11 @@ class MetricType(models.TextChoices):
     GUARDRAIL = "GUARDRAIL", "Guardrail"
 
 
+class MetricAggregation(models.TextChoices):
+    CONVERSION = "CONVERSION", "Share of users with the event"
+    MEAN_VALUE = "MEAN_VALUE", "Mean event value per exposed user"
+
+
 class ExperimentMetric(BaseModel):
     experiment = models.ForeignKey(
         "experiments.Experiment",
@@ -24,6 +29,12 @@ class ExperimentMetric(BaseModel):
         max_length=20,
         choices=MetricType.choices,
         default=MetricType.PRIMARY,
+    )
+    aggregation = models.CharField(
+        max_length=20,
+        choices=MetricAggregation.choices,
+        default=MetricAggregation.CONVERSION,
+        help_text="CONVERSION: users with the event / exposed users. MEAN_VALUE: sum of event values per user.",
     )
 
     class Meta:

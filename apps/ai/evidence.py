@@ -43,6 +43,14 @@ def build_experiment_evidence(experiment, segments=None):
             statement += f", lift {v['lift'] * 100:+.1f}% vs control (p={v['p_value']:.4f})"
         add("results", statement + ".", variant=key)
 
+    for m in inputs.get("metrics") or []:
+        for key, v in m["variants"].items():
+            if v.get("lift") is None:
+                continue
+            add("metric", f"{m['metric_type'].title()} metric \"{m['name']}\" for {key}: {v['value']} "
+                          f"({v['lift'] * 100:+.1f}% vs control, p={v['p_value']:.4f}).",
+                metric=m["name"], variant=key)
+
     for c in experiment.rollout_changes.all()[:10]:
         add("rollout", f"{c.created_at:%Y-%m-%d %H:%M} UTC: rollout {c.action} {c.from_percentage / 100:g}% → "
                        f"{c.to_percentage / 100:g}% ({'automated' if c.automated else 'manual'}): {c.reason}",

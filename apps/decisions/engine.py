@@ -268,6 +268,19 @@ def _build_checks(inputs, policy, control_key, evidence):
         detail = "No variant data yet."
     check("primary_metric_improved", "Primary metric improved", winner is not None, detail)
 
+    # Secondary / guardrail metrics (evidence only; enforcement is via Guardrail rules)
+    for m in inputs.get("metrics") or []:
+        if m.get("metric_type") == "PRIMARY":
+            continue
+        for key, v in m.get("variants", {}).items():
+            if key != control_key and v.get("is_significant") and v.get("lift") is not None:
+                evidence.add(
+                    "metric",
+                    f"{m['metric_type'].title()} metric \"{m['name']}\" for {key} changed "
+                    f"{v['lift'] * 100:+.1f}% (p={v['p_value']:.4f}).",
+                    metric=m["name"], variant=key, lift=v["lift"],
+                )
+
     # Guardrails
     guardrails = inputs.get("guardrails") or []
     breaches = [g for g in guardrails if g.get("breached")]
