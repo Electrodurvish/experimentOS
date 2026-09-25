@@ -32,6 +32,10 @@ def get_clickhouse_client():
         return None
 
 
+class EventStoreError(Exception):
+    """ClickHouse is unavailable or rejected an insert; the event must be retried."""
+
+
 def parse_event_time(value):
     """
     Normalize an event timestamp to a naive UTC datetime, which is what
@@ -93,11 +97,10 @@ def ensure_schema():
 
 
 def insert_exposure(event):
-    """Insert a single exposure event into ClickHouse."""
+    """Insert a single exposure event into ClickHouse. Raises EventStoreError on failure."""
     client = get_clickhouse_client()
     if client is None:
-        logger.warning("ClickHouse not available, skipping exposure insert")
-        return
+        raise EventStoreError("ClickHouse not available")
 
     event_time = parse_event_time(event.get("timestamp"))
 
@@ -122,16 +125,15 @@ def insert_exposure(event):
                 "version_number", "variant_key", "bucket", "source", "event_time",
             ],
         )
-    except Exception:
-        logger.warning("Failed to insert exposure into ClickHouse", exc_info=True)
+    except Exception as exc:
+        raise EventStoreError(f"Failed to insert exposure: {exc}") from exc
 
 
 def insert_conversion(event):
-    """Insert a single conversion event into ClickHouse."""
+    """Insert a single conversion event into ClickHouse. Raises EventStoreError on failure."""
     client = get_clickhouse_client()
     if client is None:
-        logger.warning("ClickHouse not available, skipping conversion insert")
-        return
+        raise EventStoreError("ClickHouse not available")
 
     event_time = parse_event_time(event.get("timestamp"))
 
@@ -154,8 +156,8 @@ def insert_conversion(event):
                 "event_id", "user_id", "event_name", "value", "metadata", "event_time",
             ],
         )
-    except Exception:
-        logger.warning("Failed to insert conversion into ClickHouse", exc_info=True)
+    except Exception as exc:
+        raise EventStoreError(f"Failed to insert conversion: {exc}") from exc
 
 
 RESULTS_QUERY = """

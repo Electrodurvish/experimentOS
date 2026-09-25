@@ -87,3 +87,86 @@ class TestProcessConversion:
         event = {"user_id": "user-1", "event_name": "purchase"}
         process_conversion(event)
         mock_clickhouse.insert.assert_not_called()
+
+
+class TestRetrySemantics:
+    def _event(self, event_id="evt-900"):
+        return {"event_id": event_id, "user_id": "u1", "experiment_id": "e", "variant_key": "control",
+                "timestamp": "2026-08-18T14:32:11+00:00"}
+
+    def test_failed_insert_releases_dedup_and_raises(self, fake_redis, mock_clickhouse):
+        import pytest
+
+        from apps.events.clickhouse import EventStoreError
+
+        mock_clickhouse.insert.side_effect = RuntimeError("clickhouse down")
+        with pytest.raises(EventStoreError):
+            process_exposure(self._event())
+        assert not fake_redis.exists("dedup:evt-900")
+
+        mock_clickhouse.insert.side_effect = None
+        process_exposure(self._event())  # retry is not treated as a duplicate
+        assert mock_clickhouse.insert.call_count == 2
+
+    def test_clickhouse_unavailable_raises(self, fake_redis):
+        from unittest.mock import patch
+
+        import pytest
+
+        from apps.events.clickhouse import EventStoreError
+
+        with patch("apps.events.clickhouse.get_clickhouse_client", return_value=None):
+            with pytest.raises(EventStoreError):
+                process_conversion({"event_id": "c-1", "user_id": "u1"})
+
+
+class TestHandleMessage:
+    def _msg(self, topic, value, offset=7):
+        from unittest.mock import MagicMock
+
+        msg = MagicMock()
+        msg.topic.return_value = topic
+        msg.value.return_value = value
+        msg.partition.return_value = 0
+        msg.offset.return_value = offset
+        return msg
+
+    def test_commits_after_success(self, fake_redis, mock_clickhouse):
+        import json
+        from unittest.mock import MagicMock
+
+        from apps.events.consumer import handle_message
+        from apps.events.producer import TOPIC_EXPOSURES
+
+        consumer = MagicMock()
+        msg = self._msg(TOPIC_EXPOSURES, json.dumps({"event_id": "e-1", "user_id": "u"}).encode())
+        assert handle_message(consumer, msg) is True
+        consumer.commit.assert_called_once_with(message=msg, asynchronous=True)
+        consumer.seek.assert_not_called()
+
+    def test_rewinds_on_failure(self, fake_redis, mock_clickhouse):
+        import json
+        from unittest.mock import MagicMock
+
+        from apps.events.consumer import handle_message
+        from apps.events.producer import TOPIC_CONVERSIONS
+
+        mock_clickhouse.insert.side_effect = RuntimeError("down")
+        consumer = MagicMock()
+        msg = self._msg(TOPIC_CONVERSIONS, json.dumps({"event_id": "c-9", "user_id": "u"}).encode(), offset=42)
+        assert handle_message(consumer, msg) is False
+        consumer.commit.assert_not_called()
+        partition = consumer.seek.call_args.args[0]
+        assert (partition.topic, partition.partition, partition.offset) == (TOPIC_CONVERSIONS, 0, 42)
+
+    def test_poison_message_is_skipped(self, fake_redis, mock_clickhouse):
+        from unittest.mock import MagicMock
+
+        from apps.events.consumer import handle_message
+        from apps.events.producer import TOPIC_EXPOSURES
+
+        consumer = MagicMock()
+        msg = self._msg(TOPIC_EXPOSURES, b"\xff not json")
+        assert handle_message(consumer, msg) is True
+        consumer.commit.assert_called_once()
+        mock_clickhouse.insert.assert_not_called()
