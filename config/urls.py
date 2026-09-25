@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from apps.common.health import healthz, readyz
 from apps.observability.views import metrics_view
 
 urlpatterns = [
@@ -15,6 +16,10 @@ urlpatterns = [
     path("api/v1/", include("apps.intelligence.urls")),
     path("api/v1/", include("apps.observability.urls")),
     path("api/v1/", include("apps.decisions.urls")),
+    path("api/v1/", include("apps.ai.urls")),
+    # Probes
+    path("healthz", healthz, name="healthz"),
+    path("readyz", readyz, name="readyz"),
     # Prometheus
     path("metrics", metrics_view, name="metrics"),
     # OpenAPI

@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "apps.intelligence",
     "apps.observability.apps.ObservabilityConfig",
     "apps.decisions.apps.DecisionsConfig",
+    "apps.ai.apps.AIConfig",
 ]
 
 MIDDLEWARE = [
@@ -110,6 +111,9 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "apps.common.exceptions.custom_exception_handler",
+    "DEFAULT_THROTTLE_RATES": {
+        "ai": env("AI_THROTTLE_RATE", default="30/min"),
+    },
 }
 
 # SimpleJWT
@@ -132,6 +136,13 @@ CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
 
 # Redis (direct redis-py)
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
+# Django cache (throttling / rate limiting state shared across API pods)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+    },
+}
 REDIS_EXPERIMENT_CACHE_TTL = 300  # 5 minutes
 REDIS_LOCK_TTL = 30  # 30 seconds for distributed locks
 REDIS_LOCK_RETRY_DELAY = 0.1  # 100ms retry
@@ -186,3 +197,10 @@ CELERY_BEAT_SCHEDULE = {
 
 # Alerts (automated rollbacks / pauses). Slack-compatible incoming webhook.
 ALERT_WEBHOOK_URL = env("ALERT_WEBHOOK_URL", default="")
+
+# AI layer (explanations over structured evidence)
+ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="")
+AI_ENABLED = env.bool("AI_ENABLED", default=True)
+AI_MODEL = env("AI_MODEL", default="claude-opus-5")
+AI_EFFORT = env("AI_EFFORT", default="medium")
+AI_TIMEOUT_SECONDS = env.float("AI_TIMEOUT_SECONDS", default=60.0)

@@ -30,6 +30,7 @@ celery = "^5.4"
 sentry-sdk = "^2.14"
 anthropic = ">=0.60"
 gunicorn = "^23.0"
+whitenoise = "^6.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"

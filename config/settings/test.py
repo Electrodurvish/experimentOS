@@ -31,3 +31,8 @@ CLICKHOUSE_DATABASE = "test_experimentos"
 # Run Celery tasks inline in tests
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_BROKER_URL = "memory://"
+
+# Never call the real LLM in tests
+ANTHROPIC_API_KEY = ""
+
+CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
