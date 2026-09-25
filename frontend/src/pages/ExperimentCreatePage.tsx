@@ -7,7 +7,7 @@ import { KEY_PATTERN } from '../lib/buckets';
 import { useAction, useAsync } from '../lib/useAsync';
 
 export function ExperimentCreatePage() {
-  const { canEdit } = useAuth();
+  const { canEdit, canEditOrg } = useAuth();
   const navigate = useNavigate();
   const projectList = useAsync(() => projects.list(), 'projects');
   const [projectId, setProjectId] = useState('');
@@ -24,8 +24,10 @@ export function ExperimentCreatePage() {
     if (!projectId && firstProject) setProjectId(firstProject);
   }, [projectId, firstProject]);
 
+  const selectedOrg = projectList.data?.results.find((p) => p.id === projectId)?.organization;
+  const canCreateHere = canEditOrg(selectedOrg);
   const keyError = key && !KEY_PATTERN.test(key) ? 'Use letters, digits, "_", "-" or "." (no spaces).' : null;
-  const valid = !!projectId && !!key && !keyError && !!name.trim();
+  const valid = !!projectId && canCreateHere && !!key && !keyError && !!name.trim();
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -76,6 +78,9 @@ export function ExperimentCreatePage() {
               ))}
             </select>
           </Field>
+          {projectId && !canCreateHere && (
+            <div className="notice notice-info">Your role in this project’s organization is read-only; pick another project.</div>
+          )}
           <Field label="Key" htmlFor="key" hint={keyError ?? 'Used by SDKs to evaluate the experiment, e.g. checkout_v3. Unique within the project.'}>
             <input
               id="key"

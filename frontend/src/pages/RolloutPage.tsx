@@ -10,7 +10,10 @@ export function RolloutPage() {
   const [params, setParams] = useSearchParams();
   const selected = params.get('experiment') ?? '';
   const candidates = useAsync(async () => {
-    const [running, paused] = await Promise.all([experiments.list({ status: 'RUNNING' }), experiments.list({ status: 'PAUSED' })]);
+    const [running, paused] = await Promise.all([
+      experiments.list({ status: 'RUNNING', page_size: 100 }),
+      experiments.list({ status: 'PAUSED', page_size: 100 }),
+    ]);
     return [...running.results, ...paused.results];
   }, 'rollout-candidates');
   const exp = useAsync(() => experiments.get(selected), selected ? `rollout-exp-${selected}` : null);

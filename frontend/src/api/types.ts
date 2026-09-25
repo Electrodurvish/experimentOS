@@ -107,8 +107,10 @@ export interface Experiment {
   experiment_type: ExperimentType;
   status: ExperimentStatus;
   owner: string | null;
-  /** Not currently returned by ExperimentListSerializer; used if it appears. */
+  /** Project UUID. */
   project?: string;
+  /** Organization UUID (via project); decides the viewer's role for this experiment. */
+  organization?: string;
   current_version: ExperimentVersion | null;
   /** Basis points (0–10000). */
   rollout_percentage: number;
@@ -140,6 +142,8 @@ export interface ExperimentListParams {
   experiment_type?: string;
   search?: string;
   page?: number;
+  /** Up to 100 (backend max_page_size). */
+  page_size?: number;
   ordering?: string;
 }
 
@@ -533,4 +537,70 @@ export interface AIQueryResponse {
 export interface ProbeStatus {
   status: string;
   database?: string;
+}
+
+// ---- Per-user debugging & time travel -------------------------------------
+
+export interface VersionConfig {
+  version_number: number;
+  traffic_allocation: number;
+  created_at: string;
+  targeting: unknown;
+  variants: {
+    key: string;
+    is_control: boolean;
+    traffic_percentage: number;
+    bucket_start: number;
+    bucket_end: number;
+    payload?: Record<string, unknown>;
+  }[];
+}
+
+export interface UserDebugResponse {
+  user_id: string;
+  experiment_key: string;
+  context: Record<string, unknown>;
+  result: EvaluationResult;
+  evaluation_steps: DebugStep[];
+  /** Checklist lines prefixed with ✓ (passed), ✗ (failed) or • (info). */
+  explanation: string[];
+  recorded_assignment: {
+    version_number: number;
+    variant_key: string;
+    bucket: number;
+    assigned_at: string;
+    context: Record<string, unknown>;
+    config_at_assignment: VersionConfig | null;
+  } | null;
+  sticky: {
+    variant_key: string;
+    bucket: number;
+    version_number: number;
+    assigned_at: string | null;
+  } | null;
+}
+
+export interface UserAssignment {
+  experiment_id: string;
+  experiment_key: string;
+  version_number: number;
+  variant_key: string;
+  bucket: number;
+  context: Record<string, unknown>;
+  assigned_at: string;
+}
+
+export interface UserAssignmentsResponse {
+  user_id: string;
+  assignments: UserAssignment[];
+}
+
+export interface ExperimentSnapshot {
+  experiment_id: string;
+  experiment_key: string;
+  at: string;
+  status: ExperimentStatus | string;
+  /** Basis points. */
+  rollout_percentage: number;
+  version: VersionConfig | null;
 }

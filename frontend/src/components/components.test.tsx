@@ -1,14 +1,22 @@
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { ApiError, type Experiment, type ExperimentResults } from '../api';
+import { ApiError, type Experiment, type ExperimentResults, type User } from '../api';
+import { canMutate } from '../lib/roles';
 import { AuthContext, type AuthValue } from '../auth/context';
 import { ChecksList, EvidenceList } from './Evidence';
 import { ExperimentHeader } from './ExperimentHeader';
 import { Timeline } from './Timeline';
 import { ErrorBox } from './ui';
 
-function withAuth(ui: React.ReactNode, canEdit = true) {
-  const value: AuthValue = { user: { id: 'u', email: 'a@b.c' }, status: 'authenticated', login: async () => {}, logout: () => {}, canEdit };
+function withAuth(ui: React.ReactNode, canEdit = true, user: User = { id: 'u', email: 'a@b.c' }) {
+  const value: AuthValue = {
+    user,
+    status: 'authenticated',
+    login: async () => {},
+    logout: () => {},
+    canEdit,
+    canEditOrg: (org) => (user.memberships ? canMutate(user, org) : canEdit),
+  };
   return (
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AuthContext.Provider value={value}>{ui}</AuthContext.Provider>
@@ -61,6 +69,28 @@ describe('ExperimentHeader', () => {
   it('hides lifecycle controls for read-only roles', () => {
     render(withAuth(<ExperimentHeader experiment={experiment} results={results} />, false));
     expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
+  });
+});
+
+describe('ExperimentHeader org-scoped roles', () => {
+  const user: User = {
+    id: 'u',
+    email: 'a@b.c',
+    memberships: [
+      { organization_id: 'org-a', organization_name: 'A', role: 'ADMIN' },
+      { organization_id: 'org-b', organization_name: 'B', role: 'VIEWER' },
+    ],
+  };
+
+  it('is editable in an org where the user is admin', () => {
+    render(withAuth(<ExperimentHeader experiment={{ ...experiment, organization: 'org-a' }} results={results} />, true, user));
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
+  });
+
+  it('is read-only in an org where the user is a viewer, despite being admin elsewhere', () => {
+    render(withAuth(<ExperimentHeader experiment={{ ...experiment, organization: 'org-b' }} results={results} />, true, user));
+    expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
+    expect(screen.getByText('read-only')).toBeInTheDocument();
   });
 });
 

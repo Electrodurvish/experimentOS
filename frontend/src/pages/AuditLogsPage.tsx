@@ -12,7 +12,7 @@ export function AuditLogsPage() {
   const action = params.get('action') ?? '';
   const page = Number(params.get('page') ?? '1') || 1;
 
-  const expList = useAsync(() => experiments.list({ ordering: '-updated_at' }), 'audit-exps');
+  const expList = useAsync(() => experiments.list({ ordering: '-updated_at', page_size: 100 }), 'audit-exps');
   const logs = useAsync(() => audit.list({ experiment, action, page }), JSON.stringify({ experiment, action, page }));
   const keys = Object.fromEntries((expList.data?.results ?? []).map((e) => [e.id, e.key]));
 

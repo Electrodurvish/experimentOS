@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { experiments, type Decision, type Experiment } from '../../api';
-import { useAuth } from '../../auth/context';
+import { useCanEdit } from '../../auth/context';
 import { ChecksList, EvidenceList } from '../../components/Evidence';
 import { Badge, Card, Empty, ErrorBox, Loading, Pagination } from '../../components/ui';
 import { bpToPct, formatDateTime, humanize, recommendationTone } from '../../lib/format';
 import { useAction, useAsync } from '../../lib/useAsync';
 
 export function DecisionTab({ experiment, onChanged }: { experiment: Experiment; onChanged: () => void }) {
-  const { canEdit } = useAuth();
+  const canEdit = useCanEdit(experiment.organization);
   const preview = useAsync(() => experiments.decisionPreview(experiment.id), `decision-${experiment.id}`);
   const [page, setPage] = useState(1);
   const history = useAsync(() => experiments.decisions(experiment.id, page), `decisions-${experiment.id}-${page}`);

@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom';
 import { experiments, type Experiment, type ExperimentResults } from '../../api';
-import { useAuth } from '../../auth/context';
+import { useCanEdit } from '../../auth/context';
 import { ConversionChart } from '../../components/ConversionChart';
 import { EvidenceList } from '../../components/Evidence';
+import { TimeTravel } from '../../components/TimeTravel';
 import { Badge, Card, Empty, ErrorBox, GeneratedBy, Loading } from '../../components/ui';
 import { bpToPct, formatDateTime, formatLift, formatNumber, formatPValue, formatRate, typeLabel } from '../../lib/format';
 import { splitArms } from '../../lib/results';
@@ -19,7 +20,7 @@ export function OverviewTab({
   resultsError: unknown;
   resultsLoading: boolean;
 }) {
-  const { canEdit } = useAuth();
+  const canEdit = useCanEdit(experiment.organization);
   const arms = splitArms(results, experiment);
   const explain = useAsync(() => experiments.explain(experiment.id), `explain-${experiment.id}`);
   const versions = useAsync(() => experiments.versions(experiment.id), `versions-${experiment.id}`);
@@ -87,6 +88,8 @@ export function OverviewTab({
           </>
         )}
       </Card>
+
+      <TimeTravel experiment={experiment} />
 
       <Card title="AI explanation" actions={<GeneratedBy by={explain.data?.generated_by} model={explain.data?.model} />}>
         {explain.loading && <Loading label="Generating explanation…" />}

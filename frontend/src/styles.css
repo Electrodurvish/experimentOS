@@ -1504,3 +1504,44 @@ a:focus-visible {
     display: none;
   }
 }
+
+/* ---------- Follow-up: debugger & time travel ---------- */
+
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+.row-highlight {
+  background: var(--info-soft);
+}
+.code-block {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem;
+  overflow-x: auto;
+  margin: 0.4rem 0 0;
+}
+.time-travel-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.time-travel-form input {
+  flex: 0 1 240px;
+  width: auto !important;
+}
+.time-travel-result {
+  margin-top: 0.75rem;
+}
+.checks-list li.info > .check-mark {
+  color: var(--text-3);
+}
+@media (max-width: 640px) {
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+}

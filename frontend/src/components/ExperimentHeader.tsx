@@ -1,9 +1,9 @@
 import { experiments, type Experiment, type ExperimentResults, type ExperimentStatus } from '../api';
-import { useAuth } from '../auth/context';
+import { useCanEdit } from '../auth/context';
 import { bpToPct, formatLift, formatRate, healthTone, typeLabel } from '../lib/format';
 import { splitArms } from '../lib/results';
 import { useAction } from '../lib/useAsync';
-import { ErrorBox, HealthBadge, StatusBadge } from './ui';
+import { Badge, ErrorBox, HealthBadge, StatusBadge } from './ui';
 
 const TRANSITION_LABELS: Partial<Record<ExperimentStatus, string>> = {
   REVIEW: 'Submit for review',
@@ -29,7 +29,7 @@ export function ExperimentHeader({
   healthLoading?: boolean;
   onChanged?: (e: Experiment) => void;
 }) {
-  const { canEdit } = useAuth();
+  const canEdit = useCanEdit(experiment.organization);
   const arms = splitArms(results, experiment);
   const transition = useAction(async (status: ExperimentStatus) => {
     if (status === 'RUNNING') return experiments.start(experiment.id);
@@ -56,6 +56,7 @@ export function ExperimentHeader({
           <div className="exp-header-meta">
             <StatusBadge status={experiment.status} />
             <span className="muted small">{typeLabel(experiment.experiment_type)}</span>
+            {!canEdit && <Badge tone="info">read-only</Badge>}
           </div>
         </div>
         <div className="exp-header-rollout" aria-label="Rollout percentage">

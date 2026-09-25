@@ -8,7 +8,7 @@ import {
   type GuardrailInput,
   type RolloutPolicy,
 } from '../api';
-import { useAuth } from '../auth/context';
+import { useCanEdit } from '../auth/context';
 import { bpToPct, formatDateTime, humanize, pctToBp } from '../lib/format';
 import { parseStages } from '../lib/rollout';
 import { useAction, useAsync } from '../lib/useAsync';
@@ -16,7 +16,7 @@ import { RolloutBar } from './RolloutBar';
 import { Badge, Card, Empty, ErrorBox, Field, Loading } from './ui';
 
 export function RolloutPanel({ experiment, onChanged }: { experiment: Experiment; onChanged: () => void }) {
-  const { canEdit } = useAuth();
+  const canEdit = useCanEdit(experiment.organization);
   const id = experiment.id;
   const rollout = useAsync(() => experiments.rollout(id), `rollout-${id}`);
   const policy = useAsync(() => experiments.rolloutPolicy(id), `policy-${id}`);

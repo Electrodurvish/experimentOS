@@ -114,3 +114,16 @@ const REC_TONE: Record<string, Tone> = {
 export function recommendationTone(rec: string): Tone {
   return REC_TONE[rec] ?? 'neutral';
 }
+
+/** `<input type="datetime-local">` value (local wall time) → ISO-8601 UTC, or null. */
+export function localInputToIso(value: string): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+export function nowLocalInput(): string {
+  const d = new Date();
+  d.setSeconds(0, 0);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}

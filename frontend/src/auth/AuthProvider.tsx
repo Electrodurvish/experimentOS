@@ -49,7 +49,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthValue>(
-    () => ({ user, status, login, logout, canEdit: canMutate(user) }),
+    () => ({
+      user,
+      status,
+      login,
+      logout,
+      canEdit: canMutate(user),
+      canEditOrg: (organizationId?: string | null) => canMutate(user, organizationId),
+    }),
     [user, status, login, logout],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

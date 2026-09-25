@@ -45,11 +45,11 @@ nginx resolves the upstream host when it starts, so the API service name must be
 | Route | Page | Backend endpoints |
 |---|---|---|
 | `/login` | Sign in | `POST auth/token/`, `GET auth/me/` |
-| `/` | Dashboard: counts by status, live experiments with rollout % and health badge | `GET experiments/?status=`, `GET experiments/{id}/health/` |
+| `/` | Dashboard: counts by status, live experiments with rollout % and health badge | `GET experiments/?page_size=100` (one request for counts; per-status counts only past 100), `GET experiments/{id}/health/` |
 | `/experiments` | List with search and status, type and project filters, paginated | `GET experiments/`, `GET projects/` |
 | `/experiments/new` | Create experiment (project, key, name, type, hypothesis) | `POST experiments/` |
 | `/experiments/:id` | Details: overview card (key, status, rollout %, health, control vs treatment, lift) and lifecycle buttons from `allowed_transitions` | `GET experiments/{id}/`, `…/results/`, `…/health/`, `POST …/transition/`, `…/start/`, `…/pause/` |
-| `?tab=overview` | Results table, conversion chart with 95% CI, SRM warning, AI explanation, configuration and version history | `…/results/`, `…/explain/` (new), `…/versions/` |
+| `?tab=overview` | Results table, conversion chart with 95% CI, SRM warning, time travel (status, rollout and version config at a chosen date-time), AI explanation, configuration and version history | `…/results/`, `…/history/?at=`, `…/explain/`, `…/versions/` |
 | `?tab=segments` | Segment Explorer: enter rows as a table or JSON to see lift, significance, contribution % and Simpson's paradox flags | `POST …/segments/` |
 | `?tab=health` | Health score, per-dimension meters, SRM check | `…/health/`, `…/results/srm/` |
 | `?tab=production` | Telemetry impact vs control, harmful anomalies | `…/production-impact/`, `…/anomalies/` |
@@ -61,7 +61,7 @@ nginx resolves the upstream host when it starts, so the API service name must be
 | `/experiments/:id/versions/new` | Version editor: variants, shares, bucket ranges, payloads, targeting JSON, and live validation that mirrors `apps/experiments/validators.py` | `POST …/versions/` |
 | `/rollout` | Rollout Control: current %, stage buttons from `policy.stages`, custom %, rollback with reason, history, policy editor, guardrail CRUD | `…/rollout/`, `…/rollback/`, `…/rollout-policy/`, `…/guardrails/` |
 | `/alerts` | PAUSE, ROLLBACK and DECREASE_ROLLOUT decisions, plus `rollback_triggered`, `guardrail_breached` and `anomaly_detected` events, across running and paused experiments | `…/decisions/`, `…/timeline/` |
-| `/debugger` | Assignment Debugger: step-by-step trace with pass/fail and the final result | `POST evaluate/debug/` |
+| `/debugger` | Assignment Debugger, three modes: **Explain a user** (✓/✗ checklist, recorded assignment with config at assignment, sticky state, trace); **User assignments** (every assignment for a user, each with an Explain link); **Replay by key** (step trace, optional project) | `GET experiments/{id}/users/{user}/debug/?context=`, `GET users/{user}/assignments/`, `POST evaluate/debug/` |
 | `/interactions` | Interaction detection for pairs of concurrent experiments | `POST interactions/` |
 | `/audit` | Audit logs filtered by experiment and action | `GET audit-logs/` |
 | `/ai` | Portfolio-wide AI query | `POST ai/query/` (new) |
@@ -77,9 +77,13 @@ nginx resolves the upstream host when it starts, so the API service name must be
   the serializers.
 - **New endpoints.** If `explain`, `ask` or `ai/query` returns 404, 405 or 501, the page shows a friendly
   "isn't available yet" notice instead of an error.
-- **Roles.** When `GET auth/me/` includes `memberships`, users whose roles are only `ANALYST` or `VIEWER` get a
-  read-only UI: create, transition, rollout, policy, guardrail and decision-apply controls are hidden.
-  The backend still enforces permissions.
+- **Roles.** When `GET auth/me/` includes `memberships`, experiment pages use the role in that experiment's own
+  `organization`: `ADMIN` and `EXPERIMENT_MANAGER` can edit, while `ANALYST`, `VIEWER` or no membership give a
+  read-only view. Create, transition, variants, rollout, policy, guardrail and decision-apply controls are hidden.
+  The create form checks the selected project's organization. Pages that aren't tied to one organization use
+  the user's strongest role. The backend still enforces permissions.
+- **Pagination.** List calls pass `page_size` (max 100) where more than one page is useful. Alerts reads up to
+  500 running and paused experiments and the last 100 decisions for each.
 
 ## Layout
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { experiments } from '../api';
+import { experiments, fetchAllPages } from '../api';
 import { Badge, Card, Empty, ErrorBox, Loading } from '../components/ui';
 import { collectAlerts, sortAlerts, type AlertItem } from '../lib/alerts';
 import { formatDateTime } from '../lib/format';
@@ -9,13 +9,16 @@ import { useAsync } from '../lib/useAsync';
 export function AlertsPage() {
   const [filter, setFilter] = useState<'all' | 'critical' | 'warning'>('all');
   const alerts = useAsync(async () => {
-    const [running, paused] = await Promise.all([experiments.list({ status: 'RUNNING' }), experiments.list({ status: 'PAUSED' })]);
-    const list = [...running.results, ...paused.results];
+    const [running, paused] = await Promise.all([
+      fetchAllPages((page) => experiments.list({ status: 'RUNNING', page, page_size: 100 }), 5),
+      fetchAllPages((page) => experiments.list({ status: 'PAUSED', page, page_size: 100 }), 5),
+    ]);
+    const list = [...running, ...paused];
     const failures: string[] = [];
     const perExperiment = await Promise.all(
       list.map(async (e) => {
         const [decisions, timeline] = await Promise.all([
-          experiments.decisions(e.id).then((d) => d.results, () => (failures.push(e.key), [])),
+          experiments.decisions(e.id, 1, 100).then((d) => d.results, () => (failures.push(e.key), [])),
           experiments.timeline(e.id).then((t) => t.timeline, () => (failures.push(e.key), [])),
         ]);
         return collectAlerts(e.id, e.key, decisions, timeline);

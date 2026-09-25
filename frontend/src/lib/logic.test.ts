@@ -1,5 +1,7 @@
 import type { Decision, Experiment, ExperimentResults, TimelineEvent } from '../api';
-import { collectAlerts, sortAlerts } from './alerts';
+import { collectAlerts, countByStatus, sortAlerts } from './alerts';
+import { parseContext, parseExplanationLine } from './debug';
+import { localInputToIso } from './format';
 import { splitArms } from './results';
 import { canMutate } from './roles';
 import { parseStages } from './rollout';
@@ -51,6 +53,10 @@ describe('canMutate', () => {
     const user = { id: '1', email: 'a', memberships: [{ organization_id: 'o', organization_name: 'O', role: 'ANALYST' as const }] };
     expect(canMutate(user)).toBe(false);
     expect(canMutate({ ...user, memberships: [{ ...user.memberships[0]!, role: 'EXPERIMENT_MANAGER' as const }] })).toBe(true);
+  });
+  it('is read-only for an org the user has no membership in', () => {
+    const user = { id: '1', email: 'a', memberships: [{ organization_id: 'o1', organization_name: 'O1', role: 'ADMIN' as const }] };
+    expect(canMutate(user, 'other-org')).toBe(false);
   });
   it('uses the org-specific role when given', () => {
     const user = {
@@ -118,5 +124,37 @@ describe('alerts', () => {
     const items = sortAlerts(collectAlerts('e1', 'checkout_v3', decisions, timeline));
     expect(items.map((i) => i.title)).toEqual(['Latency anomaly', 'Decision: DECREASE ROLLOUT', 'Decision: ROLLBACK']);
     expect(items.find((i) => i.title === 'Decision: ROLLBACK')?.severity).toBe('critical');
+  });
+});
+
+describe('countByStatus', () => {
+  it('counts with zeros for missing statuses', () => {
+    expect(countByStatus([{ status: 'RUNNING' }, { status: 'RUNNING' }, { status: 'DRAFT' }], ['RUNNING', 'PAUSED', 'DRAFT'])).toEqual({
+      RUNNING: 2,
+      PAUSED: 0,
+      DRAFT: 1,
+    });
+  });
+});
+
+describe('debugger helpers', () => {
+  it('parses ✓/✗/• checklist lines', () => {
+    expect(parseExplanationLine('✓ Experiment is RUNNING.')).toEqual({ status: 'pass', text: 'Experiment is RUNNING.' });
+    expect(parseExplanationLine('✗ User not in rollout (bucket 7200 ≥ 5000).')).toEqual({ status: 'fail', text: 'User not in rollout (bucket 7200 ≥ 5000).' });
+    expect(parseExplanationLine('• Sticky assignment found.')).toEqual({ status: 'info', text: 'Sticky assignment found.' });
+    expect(parseExplanationLine('plain')).toEqual({ status: 'info', text: 'plain' });
+  });
+
+  it('parses optional JSON context', () => {
+    expect(parseContext('')).toEqual({});
+    expect(parseContext('{"country":"IN"}')).toEqual({ value: { country: 'IN' } });
+    expect(parseContext('[1]').error).toMatch(/object/);
+    expect(parseContext('{').error).toMatch(/Invalid JSON/);
+  });
+
+  it('converts datetime-local input to ISO', () => {
+    const iso = localInputToIso('2026-09-01T13:30');
+    expect(iso).toBe(new Date('2026-09-01T13:30').toISOString());
+    expect(localInputToIso('')).toBeNull();
   });
 });

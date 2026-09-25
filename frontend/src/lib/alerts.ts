@@ -1,4 +1,4 @@
-import type { Decision, TimelineEvent } from '../api/types';
+import type { Decision, Experiment, ExperimentStatus, TimelineEvent } from '../api/types';
 
 export const ALERT_RECOMMENDATIONS = new Set(['PAUSE', 'ROLLBACK', 'DECREASE_ROLLOUT']);
 export const ALERT_EVENT_TYPES = new Set(['rollback_triggered', 'guardrail_breached', 'anomaly_detected']);
@@ -52,4 +52,11 @@ export function collectAlerts(
 
 export function sortAlerts(items: AlertItem[]): AlertItem[] {
   return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Count experiments per status, with zeros for statuses that have none. */
+export function countByStatus(list: Pick<Experiment, 'status'>[], statuses: readonly ExperimentStatus[]): Record<ExperimentStatus, number> {
+  const out = Object.fromEntries(statuses.map((s) => [s, 0])) as Record<ExperimentStatus, number>;
+  for (const e of list) if (e.status in out) out[e.status] += 1;
+  return out;
 }

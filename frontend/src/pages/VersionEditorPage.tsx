@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { experiments, type Experiment } from '../api';
-import { useAuth } from '../auth/context';
+import { useCanEdit } from '../auth/context';
 import { Card, ErrorBox, Field, Loading, StatusBadge } from '../components/ui';
 import {
   assignBuckets,
@@ -34,7 +34,7 @@ export function VersionEditorPage() {
 }
 
 function VersionEditor({ experiment, justCreated }: { experiment: Experiment; justCreated: boolean }) {
-  const { canEdit } = useAuth();
+  const canEdit = useCanEdit(experiment.organization);
   const navigate = useNavigate();
   const current = experiment.current_version;
   const [allocationPct, setAllocationPct] = useState(() => String((current?.traffic_allocation ?? 10000) / 100));

@@ -13,6 +13,7 @@ import type {
   ExperimentCreateInput,
   ExperimentListParams,
   ExperimentResults,
+  ExperimentSnapshot,
   ExperimentStatus,
   ExperimentVersion,
   ExplainResponse,
@@ -34,6 +35,8 @@ import type {
   SRMCheck,
   TimelineResponse,
   TokenPair,
+  UserAssignmentsResponse,
+  UserDebugResponse,
   User,
   VersionCreateInput,
 } from './types';
@@ -65,8 +68,8 @@ export const organizations = {
 };
 
 export const projects = {
-  list: (params: { organization?: string; page?: number } = {}) =>
-    request<Paginated<Project>>('/projects/', { query: params }),
+  list: (params: { organization?: string; page?: number; page_size?: number } = {}) =>
+    request<Paginated<Project>>('/projects/', { query: { page_size: 100, ...params } }),
 };
 
 export const experiments = {
@@ -82,6 +85,13 @@ export const experiments = {
   start: (id: string) => request<Experiment>(`${exp(id)}/start/`, { method: 'POST', body: {} }),
   pause: (id: string, reason?: string) =>
     request<Experiment>(`${exp(id)}/pause/`, { method: 'POST', body: reason ? { reason } : {} }),
+  /** Status, rollout and version config as they were at `at` (time travel). */
+  history: (id: string, at: string) => request<ExperimentSnapshot>(`${exp(id)}/history/`, { query: { at } }),
+  /** Explain one user's assignment: replay (no side effects), recorded assignment, sticky state. */
+  userDebug: (id: string, userId: string, context?: Record<string, unknown>) =>
+    request<UserDebugResponse>(`${exp(id)}/users/${encodeURIComponent(userId)}/debug/`, {
+      query: context ? { context: JSON.stringify(context) } : undefined,
+    }),
   versions: (id: string) => request<ExperimentVersion[]>(`${exp(id)}/versions/`),
   createVersion: (id: string, input: VersionCreateInput) =>
     request<ExperimentVersion>(`${exp(id)}/versions/`, { method: 'POST', body: input }),
@@ -100,8 +110,8 @@ export const experiments = {
   decisionPreview: (id: string) => request<DecisionPreview>(`${exp(id)}/decision/`),
   decide: (id: string, apply: boolean) =>
     request<Decision>(`${exp(id)}/decision/`, { method: 'POST', body: { apply } }),
-  decisions: (id: string, page = 1) =>
-    request<Paginated<Decision>>(`${exp(id)}/decisions/`, { query: { page } }),
+  decisions: (id: string, page = 1, pageSize?: number) =>
+    request<Paginated<Decision>>(`${exp(id)}/decisions/`, { query: { page, page_size: pageSize } }),
   anomalies: (id: string) => request<AnomaliesResponse>(`${exp(id)}/anomalies/`),
 
   rollout: (id: string) => request<RolloutState>(`${exp(id)}/rollout/`),
@@ -131,15 +141,17 @@ export const experiments = {
 };
 
 export const engine = {
-  debug: (experimentKey: string, userId: string, context: Record<string, unknown>) =>
+  debug: (experimentKey: string, userId: string, context: Record<string, unknown>, projectId?: string) =>
     request<DebugResponse>('/evaluate/debug/', {
       method: 'POST',
-      body: { experiment_key: experimentKey, user_id: userId, context },
+      body: { experiment_key: experimentKey, user_id: userId, context, ...(projectId ? { project_id: projectId } : {}) },
     }),
+  userAssignments: (userId: string) =>
+    request<UserAssignmentsResponse>(`/users/${encodeURIComponent(userId)}/assignments/`),
 };
 
 export const audit = {
-  list: (params: { experiment?: string; action?: string; page?: number } = {}) =>
+  list: (params: { experiment?: string; action?: string; page?: number; page_size?: number } = {}) =>
     request<Paginated<AuditLog>>('/audit-logs/', { query: params }),
 };
 
