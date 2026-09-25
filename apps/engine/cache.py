@@ -159,6 +159,7 @@ def serialize_experiment_config(experiment):
         "id": str(experiment.id),
         "key": experiment.key,
         "status": experiment.status,
+        "rollout_percentage": experiment.rollout_percentage,
         "project_id": str(experiment.project_id),
         "current_version": version_data,
     }

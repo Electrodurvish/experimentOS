@@ -246,6 +246,7 @@ class _CachedExperiment:
         self.id = data["id"]
         self.key = data["key"]
         self.status = data["status"]
+        self.rollout_percentage = data.get("rollout_percentage", 10000)
         self.project_id = data.get("project_id")
         version_data = data.get("current_version")
         self.current_version = _CachedVersion(version_data) if version_data else None

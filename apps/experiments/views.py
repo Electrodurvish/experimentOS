@@ -12,6 +12,7 @@ from apps.engine.cache import (
 from apps.engine.locks import LockAcquisitionError, distributed_lock
 from apps.experiments.models import (
     Experiment,
+    ExperimentStatus,
     ExperimentVersion,
     TargetingRule,
     Variant,
@@ -24,6 +25,7 @@ from apps.experiments.serializers import (
     VersionCreateSerializer,
 )
 from apps.experiments.state_machine import ExperimentStateMachine
+from apps.intelligence.models import TimelineEventType, record_timeline_event
 
 
 class ExperimentViewSet(viewsets.ModelViewSet):
@@ -66,6 +68,12 @@ class ExperimentViewSet(viewsets.ModelViewSet):
             action="experiment_created",
             new_value={"key": experiment.key, "name": experiment.name},
         )
+        record_timeline_event(
+            experiment,
+            TimelineEventType.EXPERIMENT_CREATED,
+            title="Experiment created",
+            actor=request.user,
+        )
 
         return Response(
             ExperimentListSerializer(experiment).data,
@@ -81,13 +89,26 @@ class ExperimentViewSet(viewsets.ModelViewSet):
         experiment = self.get_object()
         serializer = TransitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        return self._transition(experiment, serializer.validated_data["status"], request)
 
+    @action(detail=True, methods=["post"])
+    def start(self, request, pk=None):
+        """Start (or resume) an experiment. APPROVED/PAUSED → RUNNING."""
+        return self._transition(self.get_object(), ExperimentStatus.RUNNING, request)
+
+    @action(detail=True, methods=["post"])
+    def pause(self, request, pk=None):
+        """Pause a running experiment. RUNNING → PAUSED."""
+        return self._transition(self.get_object(), ExperimentStatus.PAUSED, request)
+
+    def _transition(self, experiment, new_status, request):
         sm = ExperimentStateMachine(experiment)
         try:
             with distributed_lock(f"experiment:{experiment.id}:transition"):
                 experiment = sm.transition_to(
-                    serializer.validated_data["status"],
+                    new_status,
                     actor=request.user,
+                    reason=str(request.data.get("reason", "")) if hasattr(request.data, "get") else "",
                 )
                 # Invalidate cache after successful transition
                 invalidate_experiment_config(str(experiment.project_id), experiment.key)
@@ -142,6 +163,14 @@ class ExperimentViewSet(viewsets.ModelViewSet):
 
                 # Invalidate cache
                 invalidate_experiment_config(str(experiment.project_id), experiment.key)
+
+                record_timeline_event(
+                    experiment,
+                    TimelineEventType.VERSION_CREATED,
+                    title=f"Version {next_number} created",
+                    metadata={"version_number": next_number, "traffic_allocation": data["traffic_allocation"]},
+                    actor=request.user,
+                )
 
                 AuditLog.objects.create(
                     experiment=experiment,

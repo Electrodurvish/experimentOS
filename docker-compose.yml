@@ -83,6 +83,17 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -102,6 +113,40 @@ services:
       kafka:
         condition: service_healthy
       clickhouse:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    env_file:
+      - .env
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A config worker --loglevel=info --concurrency=2
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    env_file:
+      - .env
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    volumes:
+      - .:/app
+    depends_on:
+      rabbitmq:
         condition: service_healthy
     env_file:
       - .env

@@ -18,6 +18,9 @@ class TimelineEventType(models.TextChoices):
     GUARDRAIL_BREACHED = "guardrail_breached", "Guardrail Breached"
     INTERACTION_DETECTED = "interaction_detected", "Interaction Detected"
     PARADOX_DETECTED = "paradox_detected", "Simpson's Paradox Detected"
+    ANOMALY_DETECTED = "anomaly_detected", "Anomaly Detected"
+    DECISION_MADE = "decision_made", "Decision Made"
+    ROLLBACK_TRIGGERED = "rollback_triggered", "Rollback Triggered"
 
 
 class TimelineEvent(BaseModel):

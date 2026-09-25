@@ -56,7 +56,7 @@ class TestStickyBucketing:
     def test_sticky_with_invalid_variant_recomputes(self, running_experiment, mock_cassandra):
         """If sticky references a variant that no longer exists, recompute."""
         from apps.engine.sticky import StickyAssignment
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         # Manually insert a sticky with a non-existent variant key
         mock_cassandra[("user-100", str(running_experiment.id))] = StickyAssignment(
@@ -66,7 +66,7 @@ class TestStickyBucketing:
             variant_payload={},
             bucket=1234,
             version_number=1,
-            assigned_at=datetime.utcnow(),
+            assigned_at=datetime.now(timezone.utc),
         )
 
         result = evaluate_experiment(running_experiment, "user-100", {})

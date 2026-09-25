@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import factory
@@ -27,10 +27,16 @@ User = get_user_model()
 class UserFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = User
+        skip_postgeneration_save = True
 
     email = factory.Sequence(lambda n: f"user{n}@example.com")
     username = factory.Sequence(lambda n: f"user{n}")
     password = factory.PostGenerationMethodCall("set_password", "testpass123")
+
+    @factory.post_generation
+    def _save_password(obj, create, extracted, **kwargs):
+        if create:
+            obj.save()
 
 
 class OrganizationFactory(factory.django.DjangoModelFactory):
@@ -145,7 +151,7 @@ def mock_cassandra(monkeypatch):
             variant_payload=variant_payload,
             bucket=bucket,
             version_number=version_number,
-            assigned_at=datetime.utcnow(),
+            assigned_at=datetime.now(timezone.utc),
         )
 
     def mock_delete(user_id, experiment_id):

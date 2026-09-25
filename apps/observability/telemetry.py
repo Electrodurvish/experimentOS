@@ -299,3 +299,45 @@ def detect_anomalies(telemetry_data, control_key="control", threshold_pct=20.0):
     # Sort by deviation (highest first)
     anomalies.sort(key=lambda a: a["deviation_pct"], reverse=True)
     return anomalies
+
+
+def query_metric_timeseries(experiment_id, metric_name, interval_minutes=5, lookback_hours=24):
+    """
+    Per-variant time series of a telemetry metric, averaged per interval.
+
+    Returns:
+        {"variant_key": [(iso_timestamp, avg_value), ...]}  ordered by time
+    """
+    client = get_clickhouse_client()
+    if client is None:
+        return {}
+
+    try:
+        query = """
+            SELECT
+                variant_key,
+                toStartOfInterval(event_time, toIntervalMinute({interval:UInt32})) AS ts,
+                avg(metric_value) AS avg_val
+            FROM production_telemetry
+            WHERE experiment_id = {experiment_id:String}
+              AND metric_name = {metric_name:String}
+              AND event_time >= now() - toIntervalHour({lookback:UInt32})
+            GROUP BY variant_key, ts
+            ORDER BY variant_key, ts
+        """
+        result = client.query(query, parameters={
+            "experiment_id": str(experiment_id),
+            "metric_name": metric_name,
+            "interval": int(interval_minutes),
+            "lookback": int(lookback_hours),
+        })
+
+        series = {}
+        for variant_key, ts, avg_val in result.result_rows:
+            stamp = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+            series.setdefault(variant_key, []).append((stamp, float(avg_val)))
+        return series
+
+    except Exception:
+        logger.warning("Failed to query telemetry time series", exc_info=True)
+        return {}

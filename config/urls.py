@@ -14,6 +14,7 @@ urlpatterns = [
     path("api/v1/", include("apps.events.urls")),
     path("api/v1/", include("apps.intelligence.urls")),
     path("api/v1/", include("apps.observability.urls")),
+    path("api/v1/", include("apps.decisions.urls")),
     # Prometheus
     path("metrics", metrics_view, name="metrics"),
     # OpenAPI

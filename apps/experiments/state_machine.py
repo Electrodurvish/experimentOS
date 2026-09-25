@@ -4,6 +4,7 @@ from django.utils import timezone
 from apps.audit.models import AuditLog
 from apps.common.exceptions import InvalidTransitionError
 from apps.experiments.models import ExperimentStatus
+from apps.intelligence.models import TimelineEventType, record_timeline_event
 
 VALID_TRANSITIONS = {
     ExperimentStatus.DRAFT: [ExperimentStatus.REVIEW, ExperimentStatus.ARCHIVED],
@@ -29,7 +30,7 @@ class ExperimentStateMachine:
         current = ExperimentStatus(self.experiment.status)
         return VALID_TRANSITIONS.get(current, [])
 
-    def transition_to(self, new_status, actor=None):
+    def transition_to(self, new_status, actor=None, reason=""):
         current = ExperimentStatus(self.experiment.status)
         new_status = ExperimentStatus(new_status)
         allowed = VALID_TRANSITIONS.get(current, [])
@@ -65,9 +66,33 @@ class ExperimentStateMachine:
             action="status_change",
             old_value={"status": old_status},
             new_value={"status": new_status.value},
+            metadata={"reason": reason} if reason else {},
         )
 
+        timeline_type = self._timeline_event_type(current, new_status)
+        if timeline_type:
+            record_timeline_event(
+                self.experiment,
+                timeline_type,
+                title=f"Experiment {timeline_type.label.split(' ', 1)[1].lower()}",
+                detail=reason,
+                metadata={"from": current.value, "to": new_status.value},
+                actor=actor,
+            )
+
         return self.experiment
+
+    @staticmethod
+    def _timeline_event_type(from_status, to_status):
+        if to_status == ExperimentStatus.RUNNING:
+            if from_status == ExperimentStatus.PAUSED:
+                return TimelineEventType.EXPERIMENT_RESUMED
+            return TimelineEventType.EXPERIMENT_STARTED
+        return {
+            ExperimentStatus.PAUSED: TimelineEventType.EXPERIMENT_PAUSED,
+            ExperimentStatus.COMPLETED: TimelineEventType.EXPERIMENT_COMPLETED,
+            ExperimentStatus.ARCHIVED: TimelineEventType.EXPERIMENT_ARCHIVED,
+        }.get(to_status)
 
     def _run_pre_transition_checks(self, from_status, to_status):
         if to_status == ExperimentStatus.RUNNING:

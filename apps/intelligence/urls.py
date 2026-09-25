@@ -4,6 +4,7 @@ from apps.intelligence.views import (
     ExperimentHealthView,
     ExperimentSegmentsView,
     ExperimentTimelineView,
+    InteractionDetectionView,
 )
 
 urlpatterns = [
@@ -21,5 +22,10 @@ urlpatterns = [
         "experiments/<uuid:experiment_id>/timeline/",
         ExperimentTimelineView.as_view(),
         name="experiment-timeline",
+    ),
+    path(
+        "interactions/",
+        InteractionDetectionView.as_view(),
+        name="interaction-detection",
     ),
 ]

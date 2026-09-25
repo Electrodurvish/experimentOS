@@ -49,11 +49,11 @@ class ExperimentListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "key", "name", "description", "hypothesis",
             "experiment_type", "status", "owner", "current_version",
-            "started_at", "ended_at", "allowed_transitions",
+            "rollout_percentage", "started_at", "ended_at", "allowed_transitions",
             "created_at", "updated_at",
         ]
         read_only_fields = [
-            "id", "status", "current_version", "started_at", "ended_at",
+            "id", "status", "current_version", "rollout_percentage", "started_at", "ended_at",
             "allowed_transitions", "created_at", "updated_at",
         ]
 

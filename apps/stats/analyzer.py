@@ -15,7 +15,7 @@ from apps.stats.engine import (
 )
 
 
-def analyze_experiment(variant_data, control_key="control", confidence=0.95):
+def analyze_experiment(variant_data, control_key="control", confidence=0.95, expected_proportions=None):
     """
     Analyze experiment results with statistical tests.
 
@@ -24,6 +24,9 @@ def analyze_experiment(variant_data, control_key="control", confidence=0.95):
             Each value has: exposures, unique_users, conversions, conversion_rate
         control_key: which variant is the control (default "control")
         confidence: confidence level for intervals (default 0.95)
+        expected_proportions: optional dict of variant_key -> expected traffic share
+            (defaults to an equal split; pass the real split for unequal allocations
+            or SRM will be falsely flagged)
 
     Returns dict with:
         - variants: enhanced variant data with CIs, lift, p-values
@@ -82,7 +85,16 @@ def analyze_experiment(variant_data, control_key="control", confidence=0.95):
     # SRM test
     observed_counts = [v.get("unique_users", 0) for v in variant_data.values()]
     num_variants = len(observed_counts)
-    expected_props = [1.0 / num_variants] * num_variants if num_variants > 0 else []
+    if expected_proportions:
+        weights = [expected_proportions.get(key, 0.0) for key in variant_data]
+        total_weight = sum(weights)
+        if total_weight > 0:
+            expected_share = {key: w / total_weight for key, w in zip(variant_data, weights)}
+        else:
+            expected_share = {key: 1.0 / num_variants for key in variant_data}
+    else:
+        expected_share = {key: 1.0 / num_variants for key in variant_data} if num_variants > 0 else {}
+    expected_props = [expected_share[key] for key in variant_data]
 
     chi2, srm_p = srm_test(observed_counts, expected_props)
 
@@ -91,8 +103,8 @@ def analyze_experiment(variant_data, control_key="control", confidence=0.95):
         "p_value": srm_p,
         "is_mismatch": srm_p < 0.01,  # SRM uses stricter threshold
         "expected_proportions": {
-            key: round(1.0 / num_variants, 4)
-            for key in variant_data
+            key: round(share, 4)
+            for key, share in expected_share.items()
         },
         "observed_counts": {
             key: v.get("unique_users", 0)

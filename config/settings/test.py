@@ -27,3 +27,7 @@ KAFKA_ENABLED = False
 # Disable ClickHouse in tests (will be mocked)
 CLICKHOUSE_HOST = ""
 CLICKHOUSE_DATABASE = "test_experimentos"
+
+# Run Celery tasks inline in tests
+CELERY_TASK_ALWAYS_EAGER = True
+CELERY_BROKER_URL = "memory://"

@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from apps.engine.evaluator import evaluate_rule
-from apps.engine.hasher import compute_bucket
+from apps.engine.hasher import compute_bucket, compute_rollout_bucket
 from apps.engine.models import Assignment
 from apps.engine.sticky import get_sticky_assignment, save_sticky_assignment
 from apps.experiments.models import ExperimentStatus, ExperimentVersion, Variant
@@ -41,9 +41,10 @@ def evaluate_experiment(
     1. Check experiment is RUNNING
     2. Get current active version
     3. Evaluate targeting rules
-    4. Check Cassandra for sticky assignment
-    5. If no sticky: compute bucket, check traffic, map variant
-    6. Record assignment + persist sticky
+    4. Check the live rollout gate
+    5. Check Cassandra for sticky assignment
+    6. If no sticky: compute bucket, check traffic, map variant
+    7. Record assignment + persist sticky
     """
     steps = [] if debug else None
 
@@ -110,7 +111,35 @@ def evaluate_experiment(
     elif debug:
         steps.append(DebugStep(step="targeting_check", passed=True, detail="No targeting rules configured."))
 
-    # Step 4: Check Cassandra for sticky assignment
+    # Step 4: Live rollout gate (applies to sticky users too, so rollbacks take effect)
+    rollout_percentage = getattr(experiment, "rollout_percentage", 10000)
+    if rollout_percentage < 10000:
+        rollout_bucket = compute_rollout_bucket(user_id, experiment.key)
+        if rollout_bucket >= rollout_percentage:
+            result = EvaluationResult(
+                assigned=False,
+                experiment_key=experiment.key,
+                version_number=version.version_number,
+                reason="rollout_excluded",
+            )
+            if debug:
+                steps.append(DebugStep(
+                    step="rollout_check",
+                    passed=False,
+                    detail=f"Rollout bucket {rollout_bucket} >= rollout {rollout_percentage / 100:g}%.",
+                ))
+                return result, steps
+            return result
+        if debug:
+            steps.append(DebugStep(
+                step="rollout_check",
+                passed=True,
+                detail=f"Rollout bucket {rollout_bucket} < rollout {rollout_percentage / 100:g}%.",
+            ))
+    elif debug:
+        steps.append(DebugStep(step="rollout_check", passed=True, detail="Experiment is at 100% rollout."))
+
+    # Step 5: Check Cassandra for sticky assignment
     sticky = get_sticky_assignment(user_id, str(experiment.id))
 
     if sticky:
@@ -159,7 +188,7 @@ def evaluate_experiment(
             detail="No sticky assignment found. Computing fresh assignment.",
         ))
 
-    # Step 5: Compute bucket
+    # Step 6: Compute bucket
     bucket = compute_bucket(user_id, experiment.key, version.version_number)
     if debug:
         steps.append(DebugStep(
@@ -167,7 +196,7 @@ def evaluate_experiment(
             detail=f"hash('{user_id}:{experiment.key}:{version.version_number}') → bucket {bucket}",
         ))
 
-    # Step 6: Traffic allocation check
+    # Step 7: Traffic allocation check
     if bucket >= version.traffic_allocation:
         result = EvaluationResult(
             assigned=False,
@@ -192,7 +221,7 @@ def evaluate_experiment(
             detail=f"Bucket {bucket} < allocation {version.traffic_allocation}.",
         ))
 
-    # Step 7: Find variant
+    # Step 8: Find variant
     variant = _find_variant_for_bucket(version, bucket)
     if not variant:
         result = EvaluationResult(
@@ -214,7 +243,7 @@ def evaluate_experiment(
             detail=f"Bucket {bucket} → {variant.key} (range {variant.bucket_start}-{variant.bucket_end}).",
         ))
 
-    # Step 8: Record assignment in PostgreSQL + Cassandra
+    # Step 9: Record assignment in PostgreSQL + Cassandra
     _record_assignment(experiment, version, user_id, variant, bucket, context)
 
     save_sticky_assignment(

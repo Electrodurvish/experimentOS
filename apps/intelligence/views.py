@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from apps.events.clickhouse import query_experiment_results
 from apps.experiments.models import Experiment
 from apps.intelligence.health import compute_health_score
+from apps.intelligence.interactions import build_interaction_graph, detect_interactions
 from apps.intelligence.models import TimelineEvent
 from apps.intelligence.segments import analyze_segments, detect_simpsons_paradox
 from apps.intelligence.serializers import TimelineEventSerializer
@@ -105,4 +106,24 @@ class ExperimentTimelineView(APIView):
             "experiment_id": str(experiment.id),
             "experiment_key": experiment.key,
             "timeline": serializer.data,
+        })
+
+
+class InteractionDetectionView(APIView):
+    """
+    Experiment interaction detection across concurrently running experiments.
+
+    POST /api/v1/interactions/
+    Body: {"pairs": [{"experiment_a", "experiment_b", "a_only", "b_only", "both", "neither"}]}
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        pairs = request.data.get("pairs", [])
+        if not isinstance(pairs, list):
+            return Response({"detail": "'pairs' must be a list."}, status=status.HTTP_400_BAD_REQUEST)
+        interactions = detect_interactions(pairs)
+        return Response({
+            "interactions": interactions,
+            "graph": build_interaction_graph(interactions),
         })

@@ -58,6 +58,15 @@ class Experiment(BaseModel):
         blank=True,
         related_name="current_for_experiment",
     )
+    rollout_percentage = models.PositiveIntegerField(
+        default=10000,
+        validators=[MinValueValidator(0), MaxValueValidator(10000)],
+        help_text=(
+            "Live exposure gate in basis points (0-10000). Unlike the version's "
+            "traffic_allocation, this can change while the experiment runs "
+            "(progressive rollout / automated rollback)."
+        ),
+    )
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 

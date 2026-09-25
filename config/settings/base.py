@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "apps.stats",
     "apps.intelligence",
     "apps.observability.apps.ObservabilityConfig",
+    "apps.decisions.apps.DecisionsConfig",
 ]
 
 MIDDLEWARE = [
@@ -165,3 +166,23 @@ CONSUMER_METRICS_PORT = env.int("CONSUMER_METRICS_PORT", default=0)
 SENTRY_DSN = env("SENTRY_DSN", default="")
 SENTRY_ENVIRONMENT = env("SENTRY_ENVIRONMENT", default="development")
 SENTRY_TRACES_SAMPLE_RATE = env.float("SENTRY_TRACES_SAMPLE_RATE", default=0.0)
+
+# Celery (RabbitMQ broker)
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="amqp://guest:guest@localhost:5672//")
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=False)
+CELERY_BEAT_SCHEDULE = {
+    "evaluate-running-experiments": {
+        "task": "apps.decisions.tasks.evaluate_running_experiments",
+        "schedule": env.int("DECISION_INTERVAL_SECONDS", default=300),
+    },
+    "recalculate-health-scores": {
+        "task": "apps.decisions.tasks.recalculate_health_scores",
+        "schedule": env.int("HEALTH_INTERVAL_SECONDS", default=900),
+    },
+}
+
+# Alerts (automated rollbacks / pauses). Slack-compatible incoming webhook.
+ALERT_WEBHOOK_URL = env("ALERT_WEBHOOK_URL", default="")
