@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from apps.observability.telemetry import (
@@ -52,7 +51,15 @@ class TestAnalyzeProductionImpact:
     def test_single_variant_no_control(self):
         data = {
             "treatment": {
-                "latency_ms": {"count": 100, "avg": 50.0, "p50": 45.0, "p95": 90.0, "p99": 100.0, "min": 10.0, "max": 120.0},
+                "latency_ms": {
+                    "count": 100,
+                    "avg": 50.0,
+                    "p50": 45.0,
+                    "p95": 90.0,
+                    "p99": 100.0,
+                    "min": 10.0,
+                    "max": 120.0,
+                },
             }
         }
         # When no control exists, first variant becomes baseline, no comparisons returned
@@ -62,10 +69,26 @@ class TestAnalyzeProductionImpact:
     def test_control_vs_treatment(self):
         data = {
             "control": {
-                "latency_ms": {"count": 1000, "avg": 100.0, "p50": 90.0, "p95": 180.0, "p99": 200.0, "min": 10.0, "max": 300.0},
+                "latency_ms": {
+                    "count": 1000,
+                    "avg": 100.0,
+                    "p50": 90.0,
+                    "p95": 180.0,
+                    "p99": 200.0,
+                    "min": 10.0,
+                    "max": 300.0,
+                },
             },
             "treatment": {
-                "latency_ms": {"count": 1000, "avg": 120.0, "p50": 110.0, "p95": 200.0, "p99": 250.0, "min": 15.0, "max": 350.0},
+                "latency_ms": {
+                    "count": 1000,
+                    "avg": 120.0,
+                    "p50": 110.0,
+                    "p95": 200.0,
+                    "p99": 250.0,
+                    "min": 15.0,
+                    "max": 350.0,
+                },
             },
         }
         result = analyze_production_impact(data)
@@ -80,12 +103,44 @@ class TestAnalyzeProductionImpact:
     def test_multiple_metrics(self):
         data = {
             "control": {
-                "latency_ms": {"count": 100, "avg": 100.0, "p50": 90.0, "p95": 180.0, "p99": 200.0, "min": 10.0, "max": 300.0},
-                "error_rate": {"count": 100, "avg": 0.01, "p50": 0.01, "p95": 0.02, "p99": 0.03, "min": 0.0, "max": 0.05},
+                "latency_ms": {
+                    "count": 100,
+                    "avg": 100.0,
+                    "p50": 90.0,
+                    "p95": 180.0,
+                    "p99": 200.0,
+                    "min": 10.0,
+                    "max": 300.0,
+                },
+                "error_rate": {
+                    "count": 100,
+                    "avg": 0.01,
+                    "p50": 0.01,
+                    "p95": 0.02,
+                    "p99": 0.03,
+                    "min": 0.0,
+                    "max": 0.05,
+                },
             },
             "treatment": {
-                "latency_ms": {"count": 100, "avg": 105.0, "p50": 95.0, "p95": 185.0, "p99": 210.0, "min": 12.0, "max": 310.0},
-                "error_rate": {"count": 100, "avg": 0.015, "p50": 0.012, "p95": 0.025, "p99": 0.035, "min": 0.0, "max": 0.06},
+                "latency_ms": {
+                    "count": 100,
+                    "avg": 105.0,
+                    "p50": 95.0,
+                    "p95": 185.0,
+                    "p99": 210.0,
+                    "min": 12.0,
+                    "max": 310.0,
+                },
+                "error_rate": {
+                    "count": 100,
+                    "avg": 0.015,
+                    "p50": 0.012,
+                    "p95": 0.025,
+                    "p99": 0.035,
+                    "min": 0.0,
+                    "max": 0.06,
+                },
             },
         }
         result = analyze_production_impact(data)
@@ -106,10 +161,26 @@ class TestAnalyzeProductionImpact:
     def test_custom_control_key(self):
         data = {
             "baseline": {
-                "latency_ms": {"count": 100, "avg": 100.0, "p50": 90.0, "p95": 180.0, "p99": 200.0, "min": 10.0, "max": 300.0},
+                "latency_ms": {
+                    "count": 100,
+                    "avg": 100.0,
+                    "p50": 90.0,
+                    "p95": 180.0,
+                    "p99": 200.0,
+                    "min": 10.0,
+                    "max": 300.0,
+                },
             },
             "variant_a": {
-                "latency_ms": {"count": 100, "avg": 150.0, "p50": 140.0, "p95": 250.0, "p99": 280.0, "min": 20.0, "max": 400.0},
+                "latency_ms": {
+                    "count": 100,
+                    "avg": 150.0,
+                    "p50": 140.0,
+                    "p95": 250.0,
+                    "p99": 280.0,
+                    "min": 20.0,
+                    "max": 400.0,
+                },
             },
         }
         result = analyze_production_impact(data, control_key="baseline")
@@ -128,10 +199,26 @@ class TestDetectAnomalies:
     def test_detects_anomaly(self):
         data = {
             "control": {
-                "latency_ms": {"count": 1000, "avg": 100.0, "p50": 90.0, "p95": 180.0, "p99": 200.0, "min": 10.0, "max": 300.0},
+                "latency_ms": {
+                    "count": 1000,
+                    "avg": 100.0,
+                    "p50": 90.0,
+                    "p95": 180.0,
+                    "p99": 200.0,
+                    "min": 10.0,
+                    "max": 300.0,
+                },
             },
             "treatment": {
-                "latency_ms": {"count": 1000, "avg": 150.0, "p50": 140.0, "p95": 250.0, "p99": 280.0, "min": 20.0, "max": 400.0},
+                "latency_ms": {
+                    "count": 1000,
+                    "avg": 150.0,
+                    "p50": 140.0,
+                    "p95": 250.0,
+                    "p99": 280.0,
+                    "min": 20.0,
+                    "max": 400.0,
+                },
             },
         }
         anomalies = detect_anomalies(data, threshold_pct=20.0)
@@ -144,10 +231,26 @@ class TestDetectAnomalies:
     def test_no_anomaly_below_threshold(self):
         data = {
             "control": {
-                "latency_ms": {"count": 1000, "avg": 100.0, "p50": 90.0, "p95": 180.0, "p99": 200.0, "min": 10.0, "max": 300.0},
+                "latency_ms": {
+                    "count": 1000,
+                    "avg": 100.0,
+                    "p50": 90.0,
+                    "p95": 180.0,
+                    "p99": 200.0,
+                    "min": 10.0,
+                    "max": 300.0,
+                },
             },
             "treatment": {
-                "latency_ms": {"count": 1000, "avg": 105.0, "p50": 95.0, "p95": 185.0, "p99": 210.0, "min": 12.0, "max": 310.0},
+                "latency_ms": {
+                    "count": 1000,
+                    "avg": 105.0,
+                    "p50": 95.0,
+                    "p95": 185.0,
+                    "p99": 210.0,
+                    "min": 12.0,
+                    "max": 310.0,
+                },
             },
         }
         anomalies = detect_anomalies(data, threshold_pct=20.0)
@@ -156,10 +259,26 @@ class TestDetectAnomalies:
     def test_warning_severity(self):
         data = {
             "control": {
-                "latency_ms": {"count": 1000, "avg": 100.0, "p50": 90.0, "p95": 180.0, "p99": 200.0, "min": 10.0, "max": 300.0},
+                "latency_ms": {
+                    "count": 1000,
+                    "avg": 100.0,
+                    "p50": 90.0,
+                    "p95": 180.0,
+                    "p99": 200.0,
+                    "min": 10.0,
+                    "max": 300.0,
+                },
             },
             "treatment": {
-                "latency_ms": {"count": 1000, "avg": 125.0, "p50": 115.0, "p95": 210.0, "p99": 240.0, "min": 15.0, "max": 350.0},
+                "latency_ms": {
+                    "count": 1000,
+                    "avg": 125.0,
+                    "p50": 115.0,
+                    "p95": 210.0,
+                    "p99": 240.0,
+                    "min": 15.0,
+                    "max": 350.0,
+                },
             },
         }
         anomalies = detect_anomalies(data, threshold_pct=20.0)
@@ -216,10 +335,12 @@ class TestIngestTelemetry:
 
 class TestQueryVariantTelemetry:
     def test_query_returns_structured_data(self, mock_clickhouse):
-        mock_clickhouse.query.return_value = MagicMock(result_rows=[
-            ("control", "latency_ms", 1000, 50.1234, 45.0, 90.0, 100.0, 10.0, 200.0),
-            ("treatment", "latency_ms", 1000, 55.5678, 50.0, 95.0, 110.0, 12.0, 220.0),
-        ])
+        mock_clickhouse.query.return_value = MagicMock(
+            result_rows=[
+                ("control", "latency_ms", 1000, 50.1234, 45.0, 90.0, 100.0, 10.0, 200.0),
+                ("treatment", "latency_ms", 1000, 55.5678, 50.0, 95.0, 110.0, 12.0, 220.0),
+            ]
+        )
         result = query_variant_telemetry("exp-1")
         assert "control" in result
         assert "treatment" in result

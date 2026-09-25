@@ -2,7 +2,7 @@ import pytest
 from django.urls import reverse
 
 from apps.experiments.models import ExperimentStatus
-from conftest import ExperimentFactory, ExperimentVersionFactory, ProjectFactory, VariantFactory
+from conftest import ExperimentFactory, ExperimentVersionFactory
 
 
 @pytest.mark.django_db

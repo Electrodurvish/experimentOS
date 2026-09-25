@@ -2,6 +2,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.throttling import APIKeyRateThrottle
 from apps.experiments.models import Experiment
 from apps.observability.serializers import TelemetryBatchSerializer, TelemetryIngestSerializer
 from apps.observability.telemetry import (
@@ -39,6 +40,7 @@ class TelemetryIngestView(APIView):
 
     POST /api/v1/observability/telemetry/
     """
+    throttle_classes = [APIKeyRateThrottle]
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -73,6 +75,7 @@ class TelemetryBatchIngestView(APIView):
 
     POST /api/v1/observability/telemetry/batch/
     """
+    throttle_classes = [APIKeyRateThrottle]
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -112,7 +115,6 @@ class ProductionImpactView(APIView):
 
     GET /api/v1/experiments/{id}/production-impact/
     """
-    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, experiment_id):
         try:

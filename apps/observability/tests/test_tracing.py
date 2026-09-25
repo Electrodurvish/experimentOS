@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from apps.observability.tracing import add_experiment_attributes, get_tracer, setup_tracing

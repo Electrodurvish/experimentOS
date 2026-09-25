@@ -57,7 +57,7 @@ class TestChangeRollout:
         running_experiment.refresh_from_db()
         assert running_experiment.rollout_percentage == 2500
         assert change.from_percentage == 10000 and change.to_percentage == 2500
-        assert AuditLog.objects.filter(experiment=running_experiment, action="rollout_changed").exists()
+        assert AuditLog.objects.filter(experiment=running_experiment, action="ROLLOUT_CHANGED").exists()
         assert TimelineEvent.objects.filter(experiment=running_experiment,
                                             event_type=TimelineEventType.ROLLOUT_CHANGED).exists()
 
@@ -68,7 +68,7 @@ class TestChangeRollout:
         assert event.metadata["action"] == "rollback"
         assert event.metadata["from"] == 100 and event.metadata["to"] == 10
         assert event.metadata["reason"] == "error_rate_guardrail"
-        assert AuditLog.objects.filter(action="rollback_triggered").exists()
+        assert AuditLog.objects.filter(action="ROLLBACK_TRIGGERED").exists()
         assert change.automated
 
     def test_noop_when_unchanged(self, running_experiment):

@@ -1,8 +1,8 @@
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 from apps.intelligence.models import TimelineEvent, TimelineEventType, record_timeline_event
-
 
 MOCK_VARIANT_DATA = {
     "control": {

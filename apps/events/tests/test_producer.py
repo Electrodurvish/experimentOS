@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from apps.events.producer import produce_conversion, produce_exposure
 

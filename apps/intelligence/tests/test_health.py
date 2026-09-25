@@ -1,6 +1,5 @@
 from apps.intelligence.health import compute_health_score
 
-
 HEALTHY_DATA = {
     "control": {
         "exposures": 100000,

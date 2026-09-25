@@ -1,7 +1,8 @@
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
-from apps.audit.models import AuditLog
+from apps.audit.models import AuditAction
+from apps.audit.service import record_audit
 from apps.common.exceptions import InvalidTransitionError
 from apps.experiments.models import ExperimentStatus
 from apps.intelligence.models import TimelineEventType, record_timeline_event
@@ -60,10 +61,10 @@ class ExperimentStateMachine:
 
         self._run_post_transition_effects(current, new_status)
 
-        AuditLog.objects.create(
+        record_audit(
+            self._audit_action(current, new_status),
             experiment=self.experiment,
             actor=actor,
-            action="status_change",
             old_value={"status": old_status},
             new_value={"status": new_status.value},
             metadata={"reason": reason} if reason else {},
@@ -81,6 +82,18 @@ class ExperimentStateMachine:
             )
 
         return self.experiment
+
+    @staticmethod
+    def _audit_action(from_status, to_status):
+        if to_status == ExperimentStatus.RUNNING:
+            if from_status == ExperimentStatus.PAUSED:
+                return AuditAction.EXPERIMENT_RESUMED
+            return AuditAction.EXPERIMENT_STARTED
+        return {
+            ExperimentStatus.PAUSED: AuditAction.EXPERIMENT_PAUSED,
+            ExperimentStatus.COMPLETED: AuditAction.EXPERIMENT_COMPLETED,
+            ExperimentStatus.ARCHIVED: AuditAction.EXPERIMENT_ARCHIVED,
+        }.get(to_status, AuditAction.STATUS_CHANGED)
 
     @staticmethod
     def _timeline_event_type(from_status, to_status):

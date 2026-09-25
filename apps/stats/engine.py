@@ -8,7 +8,6 @@ relative lift with CI, and sample size estimation.
 
 import math
 
-
 # ── Normal distribution helpers ──
 
 def _norm_cdf(x):

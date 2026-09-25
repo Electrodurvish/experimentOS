@@ -1,7 +1,6 @@
 import json
 import logging
 import signal
-import sys
 
 from django.conf import settings
 

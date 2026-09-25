@@ -7,10 +7,18 @@ User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
+    memberships = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "email", "username", "first_name", "last_name", "created_at"]
-        read_only_fields = ["id", "created_at"]
+        fields = ["id", "email", "username", "first_name", "last_name", "memberships", "created_at"]
+        read_only_fields = ["id", "memberships", "created_at"]
+
+    def get_memberships(self, obj):
+        return [
+            {"organization_id": str(m.organization_id), "organization_name": m.organization.name, "role": m.role}
+            for m in obj.memberships.select_related("organization")
+        ]
 
 
 class RegisterSerializer(serializers.ModelSerializer):

@@ -1,4 +1,3 @@
-from unittest.mock import patch
 
 from apps.events.consumer import is_duplicate, process_conversion, process_exposure
 

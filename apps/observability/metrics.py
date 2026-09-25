@@ -11,10 +11,6 @@ Tracks:
 """
 
 import logging
-import time
-from functools import wraps
-
-from django.conf import settings
 
 logger = logging.getLogger(__name__)
 

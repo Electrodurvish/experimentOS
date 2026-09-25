@@ -1,7 +1,5 @@
 from collections import Counter
 
-import pytest
-
 from apps.engine.hasher import BUCKET_SPACE, compute_bucket
 
 

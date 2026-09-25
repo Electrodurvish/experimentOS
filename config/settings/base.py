@@ -1,4 +1,3 @@
-import os
 from datetime import timedelta
 from pathlib import Path
 
@@ -52,6 +51,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "apps.observability.middleware.MetricsMiddleware",
+    "apps.audit.context.AuditContextMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -101,6 +101,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
+        "apps.organizations.permissions.OrganizationRolePermission",
     ],
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
@@ -111,8 +112,14 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "apps.common.exceptions.custom_exception_handler",
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.UserRateThrottle",
+    ],
     "DEFAULT_THROTTLE_RATES": {
+        "user": env("USER_THROTTLE_RATE", default="1200/min"),
         "ai": env("AI_THROTTLE_RATE", default="30/min"),
+        "sdk": env("SDK_THROTTLE_RATE", default="6000/min"),
+        "auth": env("AUTH_THROTTLE_RATE", default="20/min"),
     },
 }
 

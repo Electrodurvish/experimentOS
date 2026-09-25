@@ -7,7 +7,7 @@ platform, device) and detects:
 - Simpson's Paradox (aggregate result differs from segment-level results)
 """
 
-from apps.stats.engine import two_proportion_z_test, wilson_confidence_interval
+from apps.stats.engine import two_proportion_z_test
 
 
 def analyze_segments(segment_data, aggregate_lift=0.0):

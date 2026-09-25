@@ -6,6 +6,7 @@ class EvaluateRequestSerializer(serializers.Serializer):
     experiment_keys = serializers.ListField(
         child=serializers.CharField(max_length=255),
         min_length=1,
+        max_length=100,
     )
     context = serializers.DictField(default=dict)
 
@@ -23,6 +24,7 @@ class EvaluationResultSerializer(serializers.Serializer):
 class DebugRequestSerializer(serializers.Serializer):
     user_id = serializers.CharField(max_length=255)
     experiment_key = serializers.CharField(max_length=255)
+    project_id = serializers.UUIDField(required=False, help_text="Required when the key exists in several projects.")
     context = serializers.DictField(default=dict)
 
 

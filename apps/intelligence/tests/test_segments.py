@@ -1,6 +1,5 @@
 from apps.intelligence.segments import analyze_segments, detect_simpsons_paradox
 
-
 SEGMENT_DATA = [
     {
         "dimension": "platform",

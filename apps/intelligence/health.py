@@ -12,10 +12,8 @@ Calculates a composite health score (0-100) across multiple dimensions:
 Each dimension is scored 0-100 and combined with weighted average.
 """
 
-import math
 
 from apps.stats.engine import required_sample_size, srm_test
-
 
 # Dimension weights (must sum to 1.0)
 DIMENSION_WEIGHTS = {

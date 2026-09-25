@@ -5,23 +5,26 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.throttling import APIKeyRateThrottle
 from apps.engine.assigner import evaluate_experiment
 from apps.engine.cache import (
     cache_experiment_config,
     get_cached_experiment_config,
     serialize_experiment_config,
 )
-from apps.events.producer import produce_exposure
 from apps.engine.serializers import (
     DebugRequestSerializer,
     DebugStepSerializer,
     EvaluateRequestSerializer,
     EvaluationResultSerializer,
 )
+from apps.events.producer import produce_exposure
 from apps.experiments.models import Experiment
 from apps.observability.errors import tag_experiment
 from apps.observability.metrics import record_assignment, record_evaluation
 from apps.observability.tracing import add_experiment_attributes, experiment_span
+from apps.organizations.models import Role
+from apps.organizations.permissions import NO_ORGANIZATION, accessible_organization_ids
 
 
 class EvaluateView(APIView):
@@ -31,6 +34,7 @@ class EvaluateView(APIView):
 
     Uses Redis caching for experiment configs to avoid DB queries on hot path.
     """
+    throttle_classes = [APIKeyRateThrottle]
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -132,43 +136,60 @@ class EvaluateDebugView(APIView):
     """
     Debug endpoint for the dashboard. Authenticated via JWT.
     Shows step-by-step evaluation trace for a single experiment.
-    Always reads from DB (not cache) for accuracy.
+    Always reads from DB (not cache) for accuracy, and never writes
+    assignments or sticky state.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    rbac_write_role = Role.ANALYST
+
+    def get_rbac_organization_id(self):
+        return NO_ORGANIZATION  # the lookup below is restricted to the user's organizations
 
     def post(self, request):
         serializer = DebugRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        # Check cache status for debug info (but always load fresh from DB)
-        cache_status = "miss"
+        experiments = Experiment.objects.select_related(
+            "current_version",
+        ).prefetch_related(
+            "current_version__variants",
+            "current_version__targeting",
+        ).filter(key=data["experiment_key"])
         project = getattr(request, "project", None)
         if project:
-            cached = get_cached_experiment_config(str(project.id), data["experiment_key"])
-            if cached:
-                cache_status = "hit"
+            experiments = experiments.filter(project=project)
+        elif not request.user.is_superuser:
+            experiments = experiments.filter(
+                project__organization_id__in=accessible_organization_ids(request.user)
+            )
+        if data.get("project_id"):
+            experiments = experiments.filter(project_id=data["project_id"])
 
-        try:
-            experiment = Experiment.objects.select_related(
-                "current_version",
-            ).prefetch_related(
-                "current_version__variants",
-                "current_version__targeting",
-            ).get(key=data["experiment_key"])
-        except Experiment.DoesNotExist:
+        matches = list(experiments[:2])
+        if not matches:
             return Response(
                 {"detail": f"Experiment '{data['experiment_key']}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        if len(matches) > 1:
+            return Response(
+                {"detail": "Experiment key exists in several projects; pass project_id."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        experiment = matches[0]
+
+        cached = get_cached_experiment_config(str(experiment.project_id), data["experiment_key"])
+        cache_status = "hit" if cached else "miss"
 
         result, steps = evaluate_experiment(
             experiment=experiment,
             user_id=data["user_id"],
             context=data["context"],
             debug=True,
+            persist=False,
         )
 
+        version = experiment.current_version
         return Response({
             "experiment": {
                 "id": str(experiment.id),
@@ -176,10 +197,10 @@ class EvaluateDebugView(APIView):
                 "status": experiment.status,
             },
             "version": {
-                "id": str(experiment.current_version.id) if experiment.current_version else None,
-                "version_number": experiment.current_version.version_number if experiment.current_version else None,
-                "traffic_allocation": experiment.current_version.traffic_allocation if experiment.current_version else None,
-            } if experiment.current_version else None,
+                "id": str(version.id),
+                "version_number": version.version_number,
+                "traffic_allocation": version.traffic_allocation,
+            } if version else None,
             "cache_status": cache_status,
             "evaluation_steps": DebugStepSerializer(
                 [asdict(s) for s in steps], many=True

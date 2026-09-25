@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from apps.observability.middleware import MetricsMiddleware
@@ -14,7 +13,7 @@ class TestMetricsMiddleware:
         mock_request.path = "/api/v1/test/"
         mock_request.method = "GET"
 
-        with patch("apps.observability.middleware.record_request") as mock_record:
+        with patch("apps.observability.middleware.record_request"):
             response = middleware(mock_request)
 
         assert response == mock_response

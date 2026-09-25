@@ -3,7 +3,8 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from apps.audit.models import AuditLog
+from apps.audit.models import AuditAction
+from apps.audit.service import record_audit
 from apps.common.exceptions import InvalidTransitionError
 from apps.engine.cache import (
     invalidate_active_experiments,
@@ -26,6 +27,12 @@ from apps.experiments.serializers import (
 )
 from apps.experiments.state_machine import ExperimentStateMachine
 from apps.intelligence.models import TimelineEventType, record_timeline_event
+from apps.organizations.permissions import (
+    NO_ORGANIZATION,
+    accessible_organization_ids,
+    experiment_organization_id,
+    project_organization_id,
+)
 
 
 class ExperimentViewSet(viewsets.ModelViewSet):
@@ -35,14 +42,24 @@ class ExperimentViewSet(viewsets.ModelViewSet):
     ordering = ["-created_at"]
 
     def get_queryset(self):
-        return (
-            Experiment.objects.select_related("current_version", "owner", "project")
-            .prefetch_related(
-                "current_version__variants",
-                "current_version__targeting",
-            )
-            .all()
+        queryset = Experiment.objects.select_related("current_version", "owner", "project").prefetch_related(
+            "current_version__variants",
+            "current_version__targeting",
         )
+        if self.request.user.is_superuser:
+            return queryset.all()
+        return queryset.filter(project__organization_id__in=accessible_organization_ids(self.request.user))
+
+    def get_rbac_organization_id(self):
+        if "pk" in self.kwargs:
+            return experiment_organization_id(self.kwargs["pk"])
+        if self.request.method == "POST":
+            project_id = self.request.data.get("project_id") if hasattr(self.request.data, "get") else None
+            try:
+                return project_organization_id(project_id) if project_id else None
+            except (ValueError, DjangoValidationError):
+                return None
+        return NO_ORGANIZATION
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -62,10 +79,10 @@ class ExperimentViewSet(viewsets.ModelViewSet):
         experiment.current_version = version
         experiment.save(update_fields=["current_version"])
 
-        AuditLog.objects.create(
+        record_audit(
+            AuditAction.EXPERIMENT_CREATED,
             experiment=experiment,
             actor=request.user,
-            action="experiment_created",
             new_value={"key": experiment.key, "name": experiment.name},
         )
         record_timeline_event(
@@ -81,8 +98,16 @@ class ExperimentViewSet(viewsets.ModelViewSet):
         )
 
     def perform_update(self, serializer):
+        before = {field: serializer.instance.__dict__.get(field) for field in serializer.validated_data}
         instance = serializer.save()
         invalidate_experiment_config(str(instance.project_id), instance.key)
+        record_audit(
+            AuditAction.CONFIG_CHANGED,
+            experiment=instance,
+            actor=self.request.user,
+            old_value={k: str(v) for k, v in before.items()},
+            new_value={k: str(v) for k, v in serializer.validated_data.items()},
+        )
 
     @action(detail=True, methods=["post"])
     def transition(self, request, pk=None):
@@ -172,10 +197,10 @@ class ExperimentViewSet(viewsets.ModelViewSet):
                     actor=request.user,
                 )
 
-                AuditLog.objects.create(
+                record_audit(
+                    AuditAction.VERSION_CREATED,
                     experiment=experiment,
                     actor=request.user,
-                    action="version_created",
                     new_value={
                         "version_number": next_number,
                         "traffic_allocation": data["traffic_allocation"],

@@ -1,8 +1,8 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from apps.observability.metrics import (
-    _init_metrics,
     record_assignment,
     record_cache_hit,
     record_cache_miss,
@@ -32,8 +32,8 @@ def reset_metrics():
 
 class TestRecordRequest:
     def test_record_request_initializes_and_records(self):
-        with patch("apps.observability.metrics.Histogram", create=True) as MockHist, \
-             patch("apps.observability.metrics.Counter", create=True) as MockCounter:
+        with patch("apps.observability.metrics.Histogram", create=True), \
+             patch("apps.observability.metrics.Counter", create=True):
             # Simulate prometheus_client available
             mock_hist = MagicMock()
             mock_counter = MagicMock()

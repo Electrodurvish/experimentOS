@@ -7,7 +7,7 @@ from apps.experiments.models import (
     TargetingRule,
     Variant,
 )
-from apps.experiments.validators import validate_variant_buckets
+from apps.experiments.validators import validate_targeting_rules, validate_variant_buckets
 
 
 class VariantSerializer(serializers.ModelSerializer):
@@ -25,6 +25,10 @@ class TargetingRuleSerializer(serializers.ModelSerializer):
         model = TargetingRule
         fields = ["id", "rules_json"]
         read_only_fields = ["id"]
+
+    def validate_rules_json(self, value):
+        validate_targeting_rules(value)
+        return value
 
 
 class ExperimentVersionSerializer(serializers.ModelSerializer):
@@ -70,6 +74,18 @@ class ExperimentCreateSerializer(serializers.ModelSerializer):
         model = Experiment
         fields = ["id", "project_id", "key", "name", "description", "hypothesis", "experiment_type"]
         read_only_fields = ["id"]
+
+    def validate_project_id(self, value):
+        from apps.organizations.models import Project
+
+        if not Project.objects.filter(id=value).exists():
+            raise serializers.ValidationError("Project not found.")
+        return value
+
+    def validate(self, data):
+        if Experiment.objects.filter(project_id=data["project_id"], key=data["key"]).exists():
+            raise serializers.ValidationError({"key": "An experiment with this key already exists in the project."})
+        return data
 
 
 class TransitionSerializer(serializers.Serializer):

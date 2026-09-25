@@ -1,11 +1,9 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from django.test import override_settings
+import pytest
 from rest_framework import status
 
-from conftest import ExperimentFactory, ExperimentVersionFactory, VariantFactory
-from apps.experiments.models import ExperimentStatus
+from conftest import ExperimentFactory
 
 
 @pytest.fixture
@@ -93,8 +91,18 @@ class TestTelemetryBatchIngestView:
             "/api/v1/observability/telemetry/batch/",
             {
                 "data_points": [
-                    {"experiment_id": exp_id, "variant_key": "control", "metric_name": "latency_ms", "metric_value": 42.5},
-                    {"experiment_id": exp_id, "variant_key": "treatment", "metric_name": "latency_ms", "metric_value": 55.0},
+                    {
+                        "experiment_id": exp_id,
+                        "variant_key": "control",
+                        "metric_name": "latency_ms",
+                        "metric_value": 42.5,
+                    },
+                    {
+                        "experiment_id": exp_id,
+                        "variant_key": "treatment",
+                        "metric_name": "latency_ms",
+                        "metric_value": 55.0,
+                    },
                 ],
             },
             format="json",
@@ -118,10 +126,18 @@ class TestTelemetryBatchIngestView:
             "/api/v1/observability/telemetry/batch/",
             {
                 "data_points": [
-                    {"experiment_id": str(running_experiment.id), "variant_key": "control",
-                     "metric_name": "latency_ms", "metric_value": 1.0},
-                    {"experiment_id": str(uuid.uuid4()), "variant_key": "control",
-                     "metric_name": "latency_ms", "metric_value": 1.0},
+                    {
+                        "experiment_id": str(running_experiment.id),
+                        "variant_key": "control",
+                        "metric_name": "latency_ms",
+                        "metric_value": 1.0,
+                    },
+                    {
+                        "experiment_id": str(uuid.uuid4()),
+                        "variant_key": "control",
+                        "metric_name": "latency_ms",
+                        "metric_value": 1.0,
+                    },
                 ],
             },
             format="json",
@@ -154,10 +170,12 @@ class TestProductionImpactView:
         assert "No telemetry data" in response.data["message"]
 
     def test_with_telemetry_data(self, authenticated_client, running_experiment, mock_clickhouse):
-        mock_clickhouse.query.return_value = MagicMock(result_rows=[
-            ("control", "latency_ms", 1000, 100.0, 90.0, 180.0, 200.0, 10.0, 300.0),
-            ("treatment", "latency_ms", 1000, 150.0, 140.0, 250.0, 280.0, 20.0, 400.0),
-        ])
+        mock_clickhouse.query.return_value = MagicMock(
+            result_rows=[
+                ("control", "latency_ms", 1000, 100.0, 90.0, 180.0, 200.0, 10.0, 300.0),
+                ("treatment", "latency_ms", 1000, 150.0, 140.0, 250.0, 280.0, 20.0, 400.0),
+            ]
+        )
         response = authenticated_client.get(
             f"/api/v1/experiments/{running_experiment.id}/production-impact/",
         )
@@ -167,6 +185,7 @@ class TestProductionImpactView:
 
     def test_experiment_not_found(self, authenticated_client):
         import uuid
+
         fake_id = uuid.uuid4()
         response = authenticated_client.get(
             f"/api/v1/experiments/{fake_id}/production-impact/",

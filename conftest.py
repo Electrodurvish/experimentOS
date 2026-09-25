@@ -34,9 +34,9 @@ class UserFactory(factory.django.DjangoModelFactory):
     password = factory.PostGenerationMethodCall("set_password", "testpass123")
 
     @factory.post_generation
-    def _save_password(obj, create, extracted, **kwargs):
+    def _save_password(self, create, extracted, **kwargs):
         if create:
-            obj.save()
+            self.save()
 
 
 class OrganizationFactory(factory.django.DjangoModelFactory):
@@ -97,6 +97,15 @@ class TargetingRuleFactory(factory.django.DjangoModelFactory):
 
 
 # ── Fixtures ──
+
+
+@pytest.fixture(autouse=True)
+def clear_django_cache():
+    """Throttle counters live in the Django cache; isolate them per test."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -180,8 +189,28 @@ def authenticated_client(user):
 
 
 @pytest.fixture
-def organization(db):
-    return OrganizationFactory()
+def organization(user):
+    """An organization in which the default `user` is an ADMIN."""
+    from apps.organizations.models import Membership, Role
+
+    org = OrganizationFactory()
+    Membership.objects.create(organization=org, user=user, role=Role.ADMIN)
+    return org
+
+
+@pytest.fixture
+def make_member(organization):
+    """Create a user with the given role in `organization`, returning an authenticated client."""
+    from apps.organizations.models import Membership
+
+    def _make(role):
+        member = UserFactory()
+        Membership.objects.create(organization=organization, user=member, role=role)
+        client = APIClient()
+        client.force_authenticate(user=member)
+        return client
+
+    return _make
 
 
 @pytest.fixture

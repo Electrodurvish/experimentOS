@@ -1,5 +1,5 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import generics, permissions, status
+from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -19,6 +19,8 @@ from apps.decisions.serializers import (
 from apps.decisions.service import run_decision
 from apps.engine.locks import LockAcquisitionError
 from apps.experiments.models import Experiment
+from apps.organizations.models import Role
+from apps.organizations.permissions import has_org_role
 
 LOCK_CONFLICT = Response(
     {"detail": "Another rollout change is in progress. Please retry."},
@@ -148,6 +150,8 @@ class DecisionView(APIView):
     GET  /api/v1/experiments/{id}/decision/  preview the recommendation (not persisted)
     POST /api/v1/experiments/{id}/decision/  {apply, segments?, interactions?} persist and optionally act
     """
+    rbac_write_role = Role.ANALYST
+
 
     def get(self, request, experiment_id):
         experiment = _experiment(experiment_id)
@@ -165,6 +169,12 @@ class DecisionView(APIView):
         serializer = DecisionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        if data["apply"] and not has_org_role(request.user, experiment.project.organization_id,
+                                              Role.EXPERIMENT_MANAGER):
+            return Response(
+                {"detail": "Applying a decision requires the EXPERIMENT_MANAGER role."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         try:
             decision, applied = run_decision(
                 experiment,
@@ -196,7 +206,6 @@ class AnomalyView(APIView):
     GET /api/v1/experiments/{id}/anomalies/
     Harmful telemetry anomalies for treatment variants.
     """
-    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, experiment_id):
         from apps.decisions.context import control_and_proportions, detect_experiment_anomalies

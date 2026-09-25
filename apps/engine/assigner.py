@@ -35,6 +35,7 @@ def evaluate_experiment(
     user_id: str,
     context: dict[str, Any],
     debug: bool = False,
+    persist: bool = True,
 ) -> EvaluationResult | tuple[EvaluationResult, list[DebugStep]]:
     """
     Full evaluation pipeline:
@@ -44,7 +45,7 @@ def evaluate_experiment(
     4. Check the live rollout gate
     5. Check Cassandra for sticky assignment
     6. If no sticky: compute bucket, check traffic, map variant
-    7. Record assignment + persist sticky
+    7. Record assignment + persist sticky (skipped when persist=False, e.g. the debugger)
     """
     steps = [] if debug else None
 
@@ -157,7 +158,8 @@ def evaluate_experiment(
                 ))
 
             # Record in PostgreSQL for analytics
-            _record_assignment(experiment, version, user_id, sticky_variant, sticky.bucket, context)
+            if persist:
+                _record_assignment(experiment, version, user_id, sticky_variant, sticky.bucket, context)
 
             result = EvaluationResult(
                 assigned=True,
@@ -244,16 +246,17 @@ def evaluate_experiment(
         ))
 
     # Step 9: Record assignment in PostgreSQL + Cassandra
-    _record_assignment(experiment, version, user_id, variant, bucket, context)
+    if persist:
+        _record_assignment(experiment, version, user_id, variant, bucket, context)
 
-    save_sticky_assignment(
-        user_id=user_id,
-        experiment_id=str(experiment.id),
-        variant_key=variant.key,
-        variant_payload=variant.payload,
-        bucket=bucket,
-        version_number=version.version_number,
-    )
+        save_sticky_assignment(
+            user_id=user_id,
+            experiment_id=str(experiment.id),
+            variant_key=variant.key,
+            variant_payload=variant.payload,
+            bucket=bucket,
+            version_number=version.version_number,
+        )
 
     result = EvaluationResult(
         assigned=True,

@@ -1,8 +1,6 @@
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
-
-from rest_framework.test import APIClient
-
 
 MOCK_VARIANT_DATA = {
     "control": {

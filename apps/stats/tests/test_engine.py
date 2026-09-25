@@ -1,4 +1,3 @@
-import math
 
 from apps.stats.engine import (
     is_significant,

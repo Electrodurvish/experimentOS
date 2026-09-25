@@ -3,7 +3,7 @@ from django.core.exceptions import ValidationError
 
 from apps.common.exceptions import InvalidTransitionError
 from apps.experiments.models import ExperimentStatus
-from apps.experiments.state_machine import ExperimentStateMachine, VALID_TRANSITIONS
+from apps.experiments.state_machine import VALID_TRANSITIONS, ExperimentStateMachine
 from conftest import (
     ExperimentFactory,
     ExperimentVersionFactory,
@@ -170,7 +170,8 @@ class TestExperimentStateMachine:
         sm = ExperimentStateMachine(experiment)
         sm.transition_to(ExperimentStatus.REVIEW, actor=actor)
 
-        log = AuditLog.objects.get(experiment=experiment, action="status_change")
+        log = AuditLog.objects.get(experiment=experiment, action="STATUS_CHANGED")
+        assert log.organization_id == experiment.project.organization_id
         assert log.old_value == {"status": "DRAFT"}
         assert log.new_value == {"status": "REVIEW"}
         assert log.actor == actor

@@ -7,6 +7,8 @@ from rest_framework.views import APIView
 from apps.ai.evidence import build_experiment_evidence, build_portfolio_evidence
 from apps.ai.llm import answer_experiment_question, answer_portfolio_question
 from apps.experiments.models import Experiment
+from apps.organizations.models import Role
+from apps.organizations.permissions import accessible_organization_ids
 
 EXPLAIN_QUESTION = (
     "Summarize this experiment for a product team: what result it produced, why "
@@ -23,6 +25,7 @@ class QuestionSerializer(serializers.Serializer):
 class _AIView(APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "ai"
+    rbac_write_role = Role.ANALYST
 
     def get_experiment(self, experiment_id):
         return get_object_or_404(
@@ -89,9 +92,10 @@ class PortfolioQueryView(_AIView):
     def post(self, request):
         serializer = QuestionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        experiments = list(
-            Experiment.objects.exclude(status="ARCHIVED").order_by("-updated_at")[:100]
-        )
+        queryset = Experiment.objects.exclude(status="ARCHIVED")
+        if not request.user.is_superuser:
+            queryset = queryset.filter(project__organization_id__in=accessible_organization_ids(request.user))
+        experiments = list(queryset.order_by("-updated_at")[:100])
         rows = build_portfolio_evidence(experiments)
         result = answer_portfolio_question(rows, serializer.validated_data["question"])
         by_key = {e.key: e for e in experiments}

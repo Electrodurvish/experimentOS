@@ -1,4 +1,4 @@
-from rest_framework import permissions, status
+from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -7,8 +7,9 @@ from apps.experiments.models import Experiment
 from apps.intelligence.health import compute_health_score
 from apps.intelligence.interactions import build_interaction_graph, detect_interactions
 from apps.intelligence.models import TimelineEvent
-from apps.intelligence.segments import analyze_segments, detect_simpsons_paradox
+from apps.intelligence.segments import analyze_segments
 from apps.intelligence.serializers import TimelineEventSerializer
+from apps.organizations.models import Role
 from apps.stats.analyzer import analyze_experiment
 
 
@@ -18,7 +19,6 @@ class ExperimentHealthView(APIView):
 
     GET /api/v1/experiments/{id}/health/
     """
-    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, experiment_id):
         try:
@@ -46,7 +46,8 @@ class ExperimentSegmentsView(APIView):
 
     POST /api/v1/experiments/{id}/segments/
     """
-    permission_classes = [permissions.IsAuthenticated]
+    rbac_write_role = Role.ANALYST
+
 
     def post(self, request, experiment_id):
         try:
@@ -85,7 +86,6 @@ class ExperimentTimelineView(APIView):
 
     GET /api/v1/experiments/{id}/timeline/
     """
-    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, experiment_id):
         try:
@@ -116,7 +116,8 @@ class InteractionDetectionView(APIView):
     POST /api/v1/interactions/
     Body: {"pairs": [{"experiment_a", "experiment_b", "a_only", "b_only", "both", "neither"}]}
     """
-    permission_classes = [permissions.IsAuthenticated]
+    rbac_write_role = Role.ANALYST
+
 
     def post(self, request):
         pairs = request.data.get("pairs", [])

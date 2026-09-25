@@ -5,6 +5,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.throttling import APIKeyRateThrottle
 from apps.events.clickhouse import query_experiment_results
 from apps.events.producer import produce_conversion
 from apps.events.serializers import TrackEventSerializer
@@ -19,6 +20,7 @@ class TrackEventView(APIView):
 
     POST /api/v1/events/track
     """
+    throttle_classes = [APIKeyRateThrottle]
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -61,7 +63,6 @@ class ExperimentResultsView(APIView):
 
     GET /api/v1/experiments/{id}/results/
     """
-    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, experiment_id):
         try:
@@ -93,7 +94,6 @@ class SRMCheckView(APIView):
 
     GET /api/v1/experiments/{id}/results/srm/
     """
-    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, experiment_id):
         try:

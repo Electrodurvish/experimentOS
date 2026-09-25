@@ -10,7 +10,8 @@ import logging
 
 from django.utils import timezone
 
-from apps.audit.models import AuditLog
+from apps.audit.models import AuditAction
+from apps.audit.service import record_audit
 from apps.decisions.models import Recommendation, RolloutAction, RolloutChange
 from apps.engine.cache import invalidate_active_experiments, invalidate_experiment_config
 from apps.engine.locks import distributed_lock
@@ -48,10 +49,10 @@ def change_rollout(experiment, to_percentage, action, reason, actor=None, decisi
         )
 
         is_rollback = action == RolloutAction.ROLLBACK
-        AuditLog.objects.create(
+        record_audit(
+            AuditAction.ROLLBACK_TRIGGERED if is_rollback else AuditAction.ROLLOUT_CHANGED,
             experiment=experiment,
             actor=actor,
-            action="rollback_triggered" if is_rollback else "rollout_changed",
             old_value={"rollout_percentage": from_percentage},
             new_value={"rollout_percentage": to_percentage},
             metadata={"reason": reason, "automated": automated},
