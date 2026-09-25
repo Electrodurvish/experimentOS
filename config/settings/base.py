@@ -113,7 +113,7 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "apps.common.exceptions.custom_exception_handler",
     "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.UserRateThrottle",
+        "apps.common.throttling.FailOpenUserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
         "user": env("USER_THROTTLE_RATE", default="1200/min"),
@@ -149,9 +149,11 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": REDIS_URL,
+        "OPTIONS": {"socket_connect_timeout": 0.5, "socket_timeout": 0.5},
     },
 }
 REDIS_EXPERIMENT_CACHE_TTL = 300  # 5 minutes
+REDIS_SOCKET_TIMEOUT = env.float("REDIS_SOCKET_TIMEOUT", default=0.25)  # seconds; fail fast on partitions
 REDIS_LOCK_TTL = 30  # 30 seconds for distributed locks
 REDIS_LOCK_RETRY_DELAY = 0.1  # 100ms retry
 
@@ -180,6 +182,8 @@ OTEL_EXPORTER_OTLP_ENDPOINT = env("OTEL_EXPORTER_OTLP_ENDPOINT", default="http:/
 
 # Prometheus port for the standalone Kafka consumer process (0 = disabled)
 CONSUMER_METRICS_PORT = env.int("CONSUMER_METRICS_PORT", default=0)
+# Liveness heartbeat written by the consumer loop (checked by `manage.py consumer_healthcheck`)
+CONSUMER_HEARTBEAT_FILE = env("CONSUMER_HEARTBEAT_FILE", default="/tmp/consumer-heartbeat")
 
 # Sentry
 SENTRY_DSN = env("SENTRY_DSN", default="")
@@ -193,6 +197,10 @@ CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=False)
 CELERY_BEAT_SCHEDULE = {
+    "beat-heartbeat": {
+        "task": "apps.decisions.tasks.beat_heartbeat",
+        "schedule": 60,
+    },
     "evaluate-running-experiments": {
         "task": "apps.decisions.tasks.evaluate_running_experiments",
         "schedule": env.int("DECISION_INTERVAL_SECONDS", default=300),

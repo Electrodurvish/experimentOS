@@ -1,3 +1,4 @@
+import atexit
 import json
 import logging
 import uuid
@@ -33,7 +34,11 @@ def _get_producer():
             "acks": "all",
             "retries": 3,
             "retry.backoff.ms": 100,
+            "linger.ms": 5,
+            # Surface broker outages within 30s instead of the 5-minute default.
+            "message.timeout.ms": 30000,
         })
+        atexit.register(flush_producer)
         return _producer
     except Exception:
         logger.warning("Failed to create Kafka producer", exc_info=True)
@@ -41,9 +46,12 @@ def _get_producer():
 
 
 def _delivery_callback(err, msg):
-    """Called once for each message produced to indicate delivery result."""
+    """Called once per message with the broker's delivery result (from poll/flush)."""
     if err is not None:
         logger.warning("Kafka delivery failed: %s", err)
+        record_error("kafka_producer", "delivery_failed")
+    else:
+        record_event_produced(msg.topic())
 
 
 def produce_exposure(
@@ -81,7 +89,6 @@ def produce_exposure(
             callback=_delivery_callback,
         )
         producer.poll(0)
-        record_event_produced(TOPIC_EXPOSURES)
     except Exception:
         logger.warning("Failed to produce exposure event", exc_info=True)
         record_error("kafka_producer", "produce_failed")
@@ -111,13 +118,18 @@ def produce_conversion(user_id, event_name, value=0.0, metadata=None, event_id=N
             callback=_delivery_callback,
         )
         producer.poll(0)
-        record_event_produced(TOPIC_CONVERSIONS)
     except Exception:
         logger.warning("Failed to produce conversion event", exc_info=True)
         record_error("kafka_producer", "produce_failed")
 
 
 def flush_producer(timeout=5.0):
-    """Flush pending Kafka messages. Call on shutdown."""
+    """
+    Flush pending Kafka messages. Registered with atexit when the producer is
+    created, so events accepted with 202 are delivered before a worker exits.
+    """
     if _producer is not None:
-        _producer.flush(timeout)
+        remaining = _producer.flush(timeout)
+        if remaining:
+            logger.warning("%s Kafka messages not delivered at shutdown", remaining)
+            record_error("kafka_producer", "undelivered_at_shutdown")

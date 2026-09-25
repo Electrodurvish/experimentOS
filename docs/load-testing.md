@@ -91,12 +91,11 @@ sum by (result) (rate(events_consumed_total[1m]))
 rate(experiment_cache_hits_total[1m]) / (rate(experiment_cache_hits_total[1m]) + rate(experiment_cache_misses_total[1m]))
 ```
 
-**Metrics caveat:** the api uses the default in-process `prometheus_client`
-registry (`apps/observability/views.py:150-162`), not multiprocess mode. With
-more than one gunicorn worker per container, each scrape returns one worker's
-counters only. That is why the Dockerfile and Helm chart default to 1 worker x
-8 threads per pod. If you raise `LT_GUNICORN_WORKERS`, use k6's numbers, not
-Prometheus', until `PROMETHEUS_MULTIPROC_DIR` support is added.
+**Metrics with several workers:** set `PROMETHEUS_MULTIPROC_DIR` to a writable
+per-container directory (the Helm chart sets `/tmp/prometheus` on api pods) and
+`/metrics` aggregates all gunicorn workers (`apps/observability/metrics.py`
+`metrics_registry`, hooks in `gunicorn.conf.py`). Without it, each scrape only
+sees the worker that answered, so with more than one worker trust k6's numbers.
 
 ### Ingestion throughput (10K events/s target)
 
@@ -134,8 +133,8 @@ fixed-rate profile each sustains without `dropped_iterations` or threshold failu
 
 | Where | What happens per evaluate request |
 |---|---|
-| `apps/accounts/authentication.py:18-31` | API key lookup (SELECT) **and** an `UPDATE ... last_used_at` on every request |
-| `apps/engine/assigner.py:292-310` | `Assignment.objects.update_or_create` (SELECT + INSERT/UPDATE) per assigned experiment, on cache hits too (the cached-path bug where this write was silently skipped was fixed in commit ac76b95 - benchmarks from before that commit under-count DB work) |
+| `apps/accounts/authentication.py:18-31` | API key lookup (SELECT) on every request; `last_used_at` is updated at most once a minute per key |
+| `apps/engine/assigner.py:292-310` | `Assignment.objects.update_or_create` (SELECT + INSERT/UPDATE) for computed assignments and after version changes; sticky hits from the same version skip it (the cached-path bug where this write was silently skipped was fixed in commit ac76b95 - benchmarks from before that commit under-count DB work) |
 | `apps/engine/sticky.py:46-73` | Cassandra read + write per computed assignment |
 | `apps/common/throttling.py` + DRF `SimpleRateThrottle` | The throttle stores a list of request timestamps per key in the Redis-backed Django cache and rewrites it on every request; at thousands of req/s per key the list (and each GET/SET) grows with the rate |
 | `apps/events/producer.py:77-83` | `produce()` + `poll(0)` - cheap, asynchronous |

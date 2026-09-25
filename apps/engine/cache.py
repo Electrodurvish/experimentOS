@@ -19,6 +19,8 @@ def get_redis_client():
             settings.REDIS_URL,
             max_connections=20,
             decode_responses=True,
+            socket_connect_timeout=getattr(settings, "REDIS_SOCKET_TIMEOUT", 0.25),
+            socket_timeout=getattr(settings, "REDIS_SOCKET_TIMEOUT", 0.25),
         )
     return redis.Redis(connection_pool=_pool)
 

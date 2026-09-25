@@ -10,6 +10,25 @@ from apps.experiments.models import Experiment, ExperimentStatus
 logger = logging.getLogger(__name__)
 
 HEALTH_CHANGE_THRESHOLD = 10
+BEAT_HEARTBEAT_KEY = "celery:beat:heartbeat"
+DECISION_SWEEP_KEY = "celery:decision_sweep:last_success"
+
+
+def _write_timestamp(key):
+    import time
+
+    from apps.engine.cache import get_redis_client
+
+    try:
+        get_redis_client().set(key, str(time.time()))
+    except Exception:
+        logger.warning("Could not record %s", key, exc_info=True)
+
+
+@shared_task
+def beat_heartbeat():
+    """Scheduled every minute; its timestamp proves beat, the broker and a worker are all alive."""
+    _write_timestamp(BEAT_HEARTBEAT_KEY)
 
 
 def _running_experiments():
@@ -36,6 +55,7 @@ def evaluate_running_experiments():
             summary["failed"] += 1
             logger.exception("Decision evaluation failed for %s", experiment.key)
     logger.info("Decision sweep complete: %s", summary)
+    _write_timestamp(DECISION_SWEEP_KEY)
     return summary
 
 

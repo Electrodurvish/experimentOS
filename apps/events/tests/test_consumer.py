@@ -1,22 +1,23 @@
 
-from apps.events.consumer import is_duplicate, process_conversion, process_exposure
+from apps.events.consumer import is_duplicate, mark_processed, process_conversion, process_exposure
 
 
 class TestDeduplication:
     def test_new_event_is_not_duplicate(self, fake_redis):
         assert is_duplicate("evt-001") is False
 
-    def test_same_event_is_duplicate(self, fake_redis):
+    def test_marked_event_is_duplicate(self, fake_redis):
         assert is_duplicate("evt-002") is False
+        mark_processed("evt-002")
         assert is_duplicate("evt-002") is True
 
-    def test_different_events_not_duplicate(self, fake_redis):
-        assert is_duplicate("evt-003") is False
-        assert is_duplicate("evt-004") is False
+    def test_check_does_not_mark(self, fake_redis):
+        is_duplicate("evt-003")
+        assert not fake_redis.exists("dedup:evt-003")
 
-    def test_dedup_key_stored_in_redis(self, fake_redis):
-        is_duplicate("evt-005")
-        assert fake_redis.exists("dedup:evt-005")
+    def test_dedup_key_has_ttl(self, fake_redis):
+        mark_processed("evt-005")
+        assert 0 < fake_redis.ttl("dedup:evt-005") <= 86400
 
 
 class TestProcessExposure:
@@ -94,7 +95,7 @@ class TestRetrySemantics:
         return {"event_id": event_id, "user_id": "u1", "experiment_id": "e", "variant_key": "control",
                 "timestamp": "2026-08-18T14:32:11+00:00"}
 
-    def test_failed_insert_releases_dedup_and_raises(self, fake_redis, mock_clickhouse):
+    def test_failed_insert_does_not_mark_and_raises(self, fake_redis, mock_clickhouse):
         import pytest
 
         from apps.events.clickhouse import EventStoreError
@@ -170,3 +171,85 @@ class TestHandleMessage:
         assert handle_message(consumer, msg) is True
         consumer.commit.assert_called_once()
         mock_clickhouse.insert.assert_not_called()
+
+
+class TestFailureClassification:
+    def _msg(self, topic, value, offset=3):
+        from unittest.mock import MagicMock
+
+        msg = MagicMock()
+        msg.topic.return_value = topic
+        msg.value.return_value = value
+        msg.key.return_value = b"u"
+        msg.partition.return_value = 0
+        msg.offset.return_value = offset
+        return msg
+
+    def test_unavailable_retries_forever_without_dlq(self, fake_redis, mock_clickhouse):
+        import json
+        from unittest.mock import MagicMock, patch
+
+        from clickhouse_connect.driver.exceptions import OperationalError
+
+        from apps.events import consumer as c
+        from apps.events.producer import TOPIC_EXPOSURES
+
+        mock_clickhouse.insert.side_effect = OperationalError("connection refused")
+        kafka = MagicMock()
+        msg = self._msg(TOPIC_EXPOSURES, json.dumps({"event_id": "x1", "user_id": "u"}).encode())
+        with patch.object(c, "_send_to_dlq") as dlq:
+            results = [c.handle_message(kafka, msg) for _ in range(c.MAX_ATTEMPTS + 3)]
+        assert results == [False] * (c.MAX_ATTEMPTS + 3)
+        dlq.assert_not_called()
+        kafka.commit.assert_not_called()
+
+    def test_rejected_event_goes_to_dlq_after_budget(self, fake_redis, mock_clickhouse, mock_kafka):
+        import json
+        from unittest.mock import MagicMock
+
+        from apps.events import consumer as c
+        from apps.events.producer import TOPIC_CONVERSIONS
+
+        c._attempts.clear()
+        mock_clickhouse.insert.side_effect = ValueError("Cannot parse value")
+        mock_kafka.produce.side_effect = lambda **kw: kw["callback"](None, None)
+        kafka = MagicMock()
+        msg = self._msg(TOPIC_CONVERSIONS, json.dumps({"event_id": "bad-1", "user_id": "u"}).encode(), offset=9)
+        results = [c.handle_message(kafka, msg) for _ in range(c.MAX_ATTEMPTS)]
+        assert results == [False] * (c.MAX_ATTEMPTS - 1) + [True]
+        assert mock_kafka.produce.call_args.kwargs["topic"] == f"{TOPIC_CONVERSIONS}.dlq"
+        kafka.commit.assert_called_once_with(message=msg, asynchronous=True)
+        assert c._attempts == {}
+
+    def test_dlq_failure_keeps_retrying(self, fake_redis, mock_clickhouse, mock_kafka):
+        import json
+        from unittest.mock import MagicMock
+
+        from apps.events import consumer as c
+        from apps.events.producer import TOPIC_CONVERSIONS
+
+        c._attempts.clear()
+        mock_clickhouse.insert.side_effect = ValueError("bad")
+        mock_kafka.produce.side_effect = lambda **kw: kw["callback"]("broker down", None)
+        kafka = MagicMock()
+        msg = self._msg(TOPIC_CONVERSIONS, json.dumps({"event_id": "bad-2", "user_id": "u"}).encode(), offset=11)
+        results = [c.handle_message(kafka, msg) for _ in range(c.MAX_ATTEMPTS)]
+        assert results[-1] is False
+        kafka.commit.assert_not_called()
+        c._attempts.clear()
+
+
+class TestHeartbeat:
+    def test_healthcheck(self, tmp_path, settings):
+        import pytest
+        from django.core.management import call_command
+
+        from apps.events.consumer import touch_heartbeat
+
+        settings.CONSUMER_HEARTBEAT_FILE = str(tmp_path / "hb")
+        with pytest.raises(SystemExit):
+            call_command("consumer_healthcheck")
+        touch_heartbeat()
+        call_command("consumer_healthcheck", "--max-age", "5")
+        with pytest.raises(SystemExit):
+            call_command("consumer_healthcheck", "--max-age", "-1")

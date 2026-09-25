@@ -75,6 +75,9 @@ spec:
               value: "$(POD_IP),{{ $c.probeHost }},{{ .Values.config.ALLOWED_HOSTS }}"
             - name: OTEL_SERVICE_NAME
               value: experimentos-api
+            # Aggregate Prometheus metrics across gunicorn workers (see gunicorn.conf.py).
+            - name: PROMETHEUS_MULTIPROC_DIR
+              value: /tmp/prometheus
             {{- with $c.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

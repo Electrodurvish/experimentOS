@@ -27,6 +27,8 @@ CACHE_MISS_COUNT = None
 EVENT_PRODUCED_COUNT = None
 EVENT_CONSUMED_COUNT = None
 ERROR_COUNT = None
+BEAT_HEARTBEAT = None
+DECISION_SWEEP = None
 
 
 def _init_metrics():
@@ -36,12 +38,13 @@ def _init_metrics():
     global EVALUATION_LATENCY, EVALUATION_COUNT, ASSIGNMENT_COUNT
     global CACHE_HIT_COUNT, CACHE_MISS_COUNT
     global EVENT_PRODUCED_COUNT, EVENT_CONSUMED_COUNT, ERROR_COUNT
+    global BEAT_HEARTBEAT, DECISION_SWEEP
 
     if _metrics_initialized:
         return
 
     try:
-        from prometheus_client import Counter, Histogram
+        from prometheus_client import Counter, Gauge, Histogram
 
         REQUEST_LATENCY = Histogram(
             "http_request_duration_seconds",
@@ -101,6 +104,18 @@ def _init_metrics():
             "errors_total",
             "Total errors",
             ["component", "error_type"],
+        )
+
+        BEAT_HEARTBEAT = Gauge(
+            "celery_beat_last_heartbeat_timestamp_seconds",
+            "Unix time of the last Celery beat heartbeat task",
+            multiprocess_mode="max",
+        )
+
+        DECISION_SWEEP = Gauge(
+            "decision_sweep_last_success_timestamp_seconds",
+            "Unix time of the last completed decision engine sweep",
+            multiprocess_mode="max",
         )
 
         _metrics_initialized = True
@@ -168,3 +183,36 @@ def record_error(component, error_type):
     _init_metrics()
     if ERROR_COUNT:
         ERROR_COUNT.labels(component=component, error_type=error_type).inc()
+
+
+def refresh_job_gauges():
+    """Copy background-job heartbeats (written to Redis by Celery tasks) into gauges at scrape time."""
+    _init_metrics()
+    try:
+        from apps.decisions.tasks import BEAT_HEARTBEAT_KEY, DECISION_SWEEP_KEY
+        from apps.engine.cache import get_redis_client
+
+        client = get_redis_client()
+        for gauge, key in ((BEAT_HEARTBEAT, BEAT_HEARTBEAT_KEY), (DECISION_SWEEP, DECISION_SWEEP_KEY)):
+            value = client.get(key)
+            if gauge is not None and value:
+                gauge.set(float(value))
+    except Exception:
+        logger.debug("Could not refresh job gauges", exc_info=True)
+
+
+def metrics_registry():
+    """
+    The registry to expose. With several gunicorn workers each process has its own
+    counters, so when PROMETHEUS_MULTIPROC_DIR is set the per-process files are
+    aggregated (see gunicorn.conf.py for the matching child_exit hook).
+    """
+    import os
+
+    from prometheus_client import REGISTRY, CollectorRegistry, multiprocess
+
+    if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        return registry
+    return REGISTRY

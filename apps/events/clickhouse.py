@@ -33,7 +33,23 @@ def get_clickhouse_client():
 
 
 class EventStoreError(Exception):
-    """ClickHouse is unavailable or rejected an insert; the event must be retried."""
+    """An event could not be stored."""
+
+
+class EventStoreUnavailableError(EventStoreError):
+    """ClickHouse is unreachable; retry the event until it comes back."""
+
+
+class EventRejectedError(EventStoreError):
+    """ClickHouse (or event parsing) rejected this event; retrying is unlikely to help."""
+
+
+def _store_error(kind, exc):
+    from clickhouse_connect.driver.exceptions import OperationalError
+
+    if isinstance(exc, (OperationalError, ConnectionError, TimeoutError)):
+        return EventStoreUnavailableError(f"ClickHouse unavailable while inserting {kind}: {exc}")
+    return EventRejectedError(f"{kind} rejected: {exc}")
 
 
 def parse_event_time(value):
@@ -100,7 +116,7 @@ def insert_exposure(event):
     """Insert a single exposure event into ClickHouse. Raises EventStoreError on failure."""
     client = get_clickhouse_client()
     if client is None:
-        raise EventStoreError("ClickHouse not available")
+        raise EventStoreUnavailableError("ClickHouse not available")
 
     event_time = parse_event_time(event.get("timestamp"))
 
@@ -126,14 +142,14 @@ def insert_exposure(event):
             ],
         )
     except Exception as exc:
-        raise EventStoreError(f"Failed to insert exposure: {exc}") from exc
+        raise _store_error("exposure", exc) from exc
 
 
 def insert_conversion(event):
     """Insert a single conversion event into ClickHouse. Raises EventStoreError on failure."""
     client = get_clickhouse_client()
     if client is None:
-        raise EventStoreError("ClickHouse not available")
+        raise EventStoreUnavailableError("ClickHouse not available")
 
     event_time = parse_event_time(event.get("timestamp"))
 
@@ -157,7 +173,7 @@ def insert_conversion(event):
             ],
         )
     except Exception as exc:
-        raise EventStoreError(f"Failed to insert conversion: {exc}") from exc
+        raise _store_error("conversion", exc) from exc
 
 
 RESULTS_QUERY = """

@@ -29,18 +29,62 @@ groups:
         annotations:
           summary: "API P95 above 200ms target"
 
+      - alert: EventConsumerDown
+        expr: up{job="event-consumer"} == 0 or absent(up{job="event-consumer"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Event consumer is not being scraped (process down)"
+
       - alert: EventConsumerStalled
-        expr: sum(rate(events_produced_total[5m])) > 0 and sum(rate(events_consumed_total[5m])) == 0
+        # Only successful stores count; retries during a ClickHouse outage show up as result="failed".
+        expr: |
+          sum(rate(events_produced_total[5m])) > 0
+            unless sum(rate(events_consumed_total{result="processed"}[5m])) > 0
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Events are being produced but the consumer is not processing them"
+          summary: "Events are delivered to Kafka but none are being stored in ClickHouse"
+
+      - alert: EventStoreUnavailable
+        expr: sum(rate(errors_total{component="event_consumer", error_type="store_unavailable"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Consumer cannot reach ClickHouse; events are queuing in Kafka"
+
+      - alert: EventsDeadLettered
+        expr: sum(increase(events_consumed_total{result="dead_lettered"}[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Events were rejected by ClickHouse and sent to a .dlq topic"
 
       - alert: KafkaProduceFailures
+        # delivery_failed is reported by the broker delivery callback, so broker outages are visible.
         expr: sum(rate(errors_total{component="kafka_producer"}[5m])) > 0
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "Kafka producer is failing to publish events"
+
+      - alert: CeleryBeatStalled
+        # Written by a beat-scheduled task every minute, so this covers beat, RabbitMQ and workers.
+        expr: time() - celery_beat_last_heartbeat_timestamp_seconds > 300
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No Celery beat heartbeat for 5 minutes: automated decisions and rollbacks are not running"
+
+      - alert: DecisionSweepFailing
+        expr: time() - decision_sweep_last_success_timestamp_seconds > 1800
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The decision engine sweep has not completed for 30 minutes"

@@ -1,10 +1,13 @@
 import hashlib
+from datetime import timedelta
 
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
 from apps.accounts.models import APIKey
+
+LAST_USED_RESOLUTION = timedelta(minutes=1)
 
 
 class APIKeyAuthentication(BaseAuthentication):
@@ -27,8 +30,11 @@ class APIKeyAuthentication(BaseAuthentication):
             raise AuthenticationFailed("API key has expired.")
 
         request.project = api_key.project
-        api_key.last_used_at = timezone.now()
-        api_key.save(update_fields=["last_used_at"])
+        now = timezone.now()
+        # Avoid a write on every SDK request: last_used_at is only needed to minute precision.
+        if api_key.last_used_at is None or now - api_key.last_used_at > LAST_USED_RESOLUTION:
+            APIKey.objects.filter(pk=api_key.pk).update(last_used_at=now)
+            api_key.last_used_at = now
 
         return (None, api_key)
 

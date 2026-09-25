@@ -219,7 +219,8 @@ def metrics_view(request):
     from django.http import HttpResponse
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-    from apps.observability.metrics import _init_metrics
+    from apps.observability.metrics import _init_metrics, metrics_registry, refresh_job_gauges
 
     _init_metrics()
-    return HttpResponse(generate_latest(), content_type=CONTENT_TYPE_LATEST)
+    refresh_job_gauges()
+    return HttpResponse(generate_latest(metrics_registry()), content_type=CONTENT_TYPE_LATEST)

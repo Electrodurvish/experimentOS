@@ -98,10 +98,8 @@ secrets: {}
 api:
   enabled: true
   replicaCount: 2
-  # Prometheus metrics are held in-process (prometheus_client default registry,
-  # no multiprocess mode), so with >1 gunicorn worker each scrape only sees one
-  # worker's counters. Keep 1 worker per pod and scale threads/pods until the
-  # backend enables PROMETHEUS_MULTIPROC_DIR. See docs/load-testing.md.
+  # PROMETHEUS_MULTIPROC_DIR is set on api pods, so /metrics aggregates all
+  # gunicorn workers; raise workers for CPU-bound load.
   gunicorn:
     workers: 1
     threads: 8
@@ -193,13 +191,14 @@ eventConsumer:
       memory: 512Mi
   # The consumer exposes no health endpoint; the probe only proves the
   # prometheus_client HTTP thread is alive, not that the poll loop is healthy.
+  # The consumer loop writes a heartbeat file every iteration (at most ~31s apart
+  # while backing off); a hung loop fails this probe even if the metrics thread is up.
   livenessProbe:
-    httpGet:
-      path: /metrics
-      port: metrics
-    initialDelaySeconds: 15
-    periodSeconds: 20
-    timeoutSeconds: 3
+    exec:
+      command: ["python", "manage.py", "consumer_healthcheck", "--max-age", "90"]
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 15
     failureThreshold: 3
   autoscaling:
     # Replicas beyond the topic partition count sit idle (one consumer group).

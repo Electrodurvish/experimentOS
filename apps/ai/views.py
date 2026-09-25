@@ -2,11 +2,11 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.ai.evidence import build_experiment_evidence, build_portfolio_evidence
 from apps.ai.llm import answer_experiment_question, answer_portfolio_question
+from apps.common.throttling import FailOpenScopedRateThrottle
 from apps.experiments.models import Experiment
 from apps.organizations.models import Role
 from apps.organizations.permissions import accessible_organization_ids
@@ -74,7 +74,7 @@ PortfolioResponseSerializer = inline_serializer(
 
 
 class _AIView(APIView):
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [FailOpenScopedRateThrottle]
     throttle_scope = "ai"
     rbac_write_role = Role.ANALYST
 

@@ -157,8 +157,9 @@ def evaluate_experiment(
                     ),
                 ))
 
-            # Record in PostgreSQL for analytics
-            if persist:
+            # Record in PostgreSQL for analytics. A sticky hit from the same version was
+            # already recorded when it was computed, so only write after a version change.
+            if persist and sticky.version_number != version.version_number:
                 _record_assignment(experiment, version, user_id, sticky_variant, sticky.bucket, context)
 
             result = EvaluationResult(

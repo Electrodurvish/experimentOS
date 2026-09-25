@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -8,6 +9,8 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 _session = None
+_circuit_open_until = 0.0
+CIRCUIT_BREAK_SECONDS = 30.0
 
 
 @dataclass
@@ -25,11 +28,23 @@ def _is_enabled():
     return getattr(settings, "CASSANDRA_STICKY_ENABLED", True)
 
 
+class StickyStoreUnavailableError(Exception):
+    pass
+
+
 def _get_session():
-    """Lazy-initialize a Cassandra session (singleton)."""
-    global _session
+    """
+    Lazy-initialize a Cassandra session (singleton).
+
+    A failed connect opens a circuit for CIRCUIT_BREAK_SECONDS so evaluations
+    don't each pay the connect timeout while Cassandra is down; they fall back
+    to deterministic bucketing, which returns the same variant for most users.
+    """
+    global _session, _circuit_open_until
     if _session is not None:
         return _session
+    if time.monotonic() < _circuit_open_until:
+        raise StickyStoreUnavailableError("Cassandra circuit open")
 
     from cassandra.cluster import Cluster
     from cassandra.policies import DCAwareRoundRobinPolicy
@@ -38,8 +53,14 @@ def _get_session():
         contact_points=settings.CASSANDRA_CONTACT_POINTS,
         port=settings.CASSANDRA_PORT,
         load_balancing_policy=DCAwareRoundRobinPolicy(local_dc="dc1"),
+        connect_timeout=getattr(settings, "CASSANDRA_CONNECT_TIMEOUT", 2.0),
     )
-    _session = cluster.connect(settings.CASSANDRA_KEYSPACE)
+    try:
+        _session = cluster.connect(settings.CASSANDRA_KEYSPACE)
+    except Exception:
+        _circuit_open_until = time.monotonic() + CIRCUIT_BREAK_SECONDS
+        cluster.shutdown()
+        raise
     return _session
 
 

@@ -97,3 +97,27 @@ class TestStickyBucketing:
         sticky_step = next(s for s in steps if s.step == "sticky_lookup")
         assert sticky_step.passed is False
         assert "No sticky assignment found" in sticky_step.detail
+
+
+def test_cassandra_circuit_breaker(settings, monkeypatch):
+    import sys
+    import types
+    from unittest.mock import MagicMock
+
+    from apps.engine import sticky
+
+    settings.CASSANDRA_STICKY_ENABLED = True
+    cluster = MagicMock()
+    cluster.connect.side_effect = OSError("unreachable")
+    fake = types.ModuleType("cassandra.cluster")
+    fake.Cluster = MagicMock(return_value=cluster)
+    policies = types.ModuleType("cassandra.policies")
+    policies.DCAwareRoundRobinPolicy = MagicMock()
+    monkeypatch.setitem(sys.modules, "cassandra.cluster", fake)
+    monkeypatch.setitem(sys.modules, "cassandra.policies", policies)
+    monkeypatch.setattr(sticky, "_session", None)
+    monkeypatch.setattr(sticky, "_circuit_open_until", 0.0)
+
+    assert sticky.get_sticky_assignment("u", "e") is None
+    assert sticky.get_sticky_assignment("u", "e") is None
+    assert cluster.connect.call_count == 1  # second call short-circuits
