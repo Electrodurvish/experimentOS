@@ -78,7 +78,7 @@ def insert_exposure(event):
         logger.warning("ClickHouse not available, skipping exposure insert")
         return
 
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     timestamp = event.get("timestamp", "")
     if isinstance(timestamp, str):
@@ -87,9 +87,9 @@ def insert_exposure(event):
             dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
             event_time = dt.strftime("%Y-%m-%d %H:%M:%S")
         except (ValueError, TypeError):
-            event_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            event_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     else:
-        event_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        event_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     row = [[
         event["event_id"],
@@ -123,7 +123,7 @@ def insert_conversion(event):
         logger.warning("ClickHouse not available, skipping conversion insert")
         return
 
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     timestamp = event.get("timestamp", "")
     if isinstance(timestamp, str):
@@ -131,9 +131,9 @@ def insert_conversion(event):
             dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
             event_time = dt.strftime("%Y-%m-%d %H:%M:%S")
         except (ValueError, TypeError):
-            event_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            event_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     else:
-        event_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        event_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     metadata_str = json.dumps(event.get("metadata", {}))
 
@@ -158,11 +158,56 @@ def insert_conversion(event):
         logger.warning("Failed to insert conversion into ClickHouse", exc_info=True)
 
 
-def query_experiment_results(experiment_id):
-    """
-    Query ClickHouse for per-variant exposure and conversion data.
+RESULTS_QUERY = """
+    SELECT
+        e.variant_key,
+        sum(e.exposures) AS exposures,
+        count() AS unique_users,
+        countIf(c.last_conversion >= e.first_exposure) AS conversions
+    FROM (
+        SELECT
+            user_id,
+            argMin(variant_key, event_time) AS variant_key,
+            min(event_time) AS first_exposure,
+            count() AS exposures
+        FROM experiment_exposures
+        WHERE experiment_id = {experiment_id:String}
+        GROUP BY user_id
+    ) AS e
+    LEFT JOIN (
+        SELECT user_id, max(event_time) AS last_conversion
+        FROM conversion_events
+        WHERE user_id IN (
+            SELECT DISTINCT user_id FROM experiment_exposures WHERE experiment_id = {experiment_id:String}
+        )
+          AND ({event_name:String} = '' OR event_name = {event_name:String})
+        GROUP BY user_id
+    ) AS c USING (user_id)
+    GROUP BY e.variant_key
+"""
 
-    Returns dict with variant-level stats:
+
+def _primary_event_name(experiment_id):
+    from apps.stats.models import ExperimentMetric, MetricType
+
+    return (
+        ExperimentMetric.objects.filter(experiment_id=experiment_id, metric_type=MetricType.PRIMARY)
+        .values_list("event_name", flat=True)
+        .first()
+    )
+
+
+def query_experiment_results(experiment_id, event_name=None):
+    """
+    Per-variant exposure and conversion data, computed entirely in ClickHouse.
+
+    - A user belongs to the variant of their first exposure (argMin by time).
+    - A user converts if they have a conversion event at or after their first
+      exposure. When the experiment has a PRIMARY metric only that event_name
+      counts; otherwise any conversion event does.
+    - "conversions" counts converting users, so conversion_rate is a proportion.
+
+    Returns:
     {
         "variant_key": {
             "exposures": int,
@@ -176,83 +221,24 @@ def query_experiment_results(experiment_id):
     if client is None:
         return {}
 
+    if event_name is None:
+        event_name = _primary_event_name(experiment_id) or ""
+
     try:
-        # Get per-variant exposure stats
-        exposure_query = """
-            SELECT
-                variant_key,
-                count() AS exposures,
-                uniq(user_id) AS unique_users
-            FROM experiment_exposures
-            WHERE experiment_id = {experiment_id:String}
-            GROUP BY variant_key
-        """
-        exposure_result = client.query(
-            exposure_query,
-            parameters={"experiment_id": str(experiment_id)},
+        result = client.query(
+            RESULTS_QUERY,
+            parameters={"experiment_id": str(experiment_id), "event_name": event_name},
         )
-
-        variants = {}
-        exposed_users_by_variant = {}
-
-        for row in exposure_result.result_rows:
-            variant_key = row[0]
-            variants[variant_key] = {
-                "exposures": row[1],
-                "unique_users": row[2],
-                "conversions": 0,
-                "conversion_rate": 0.0,
-            }
-
-        # Get user_ids per variant for conversion join
-        user_variant_query = """
-            SELECT DISTINCT user_id, variant_key
-            FROM experiment_exposures
-            WHERE experiment_id = {experiment_id:String}
-        """
-        user_variant_result = client.query(
-            user_variant_query,
-            parameters={"experiment_id": str(experiment_id)},
-        )
-
-        for row in user_variant_result.result_rows:
-            user_id, variant_key = row[0], row[1]
-            exposed_users_by_variant.setdefault(variant_key, set()).add(user_id)
-
-        if exposed_users_by_variant:
-            # Get all conversions for exposed users
-            all_exposed_users = set()
-            for users in exposed_users_by_variant.values():
-                all_exposed_users.update(users)
-
-            if all_exposed_users:
-                conversion_query = """
-                    SELECT user_id, count() AS conversions
-                    FROM conversion_events
-                    WHERE user_id IN {user_ids:Array(String)}
-                    GROUP BY user_id
-                """
-                conversion_result = client.query(
-                    conversion_query,
-                    parameters={"user_ids": list(all_exposed_users)},
-                )
-
-                user_conversions = {row[0]: row[1] for row in conversion_result.result_rows}
-
-                for variant_key, users in exposed_users_by_variant.items():
-                    variant_conversions = sum(
-                        user_conversions.get(uid, 0) for uid in users
-                    )
-                    if variant_key in variants:
-                        variants[variant_key]["conversions"] = variant_conversions
-                        unique = variants[variant_key]["unique_users"]
-                        if unique > 0:
-                            variants[variant_key]["conversion_rate"] = round(
-                                variant_conversions / unique, 4
-                            )
-
-        return variants
-
     except Exception:
         logger.warning("Failed to query experiment results from ClickHouse", exc_info=True)
         return {}
+
+    variants = {}
+    for variant_key, exposures, unique_users, conversions in result.result_rows:
+        variants[variant_key] = {
+            "exposures": exposures,
+            "unique_users": unique_users,
+            "conversions": conversions,
+            "conversion_rate": round(conversions / unique_users, 4) if unique_users else 0.0,
+        }
+    return variants

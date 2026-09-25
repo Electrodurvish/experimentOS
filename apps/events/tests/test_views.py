@@ -123,3 +123,36 @@ class TestAutoExposureTracking:
 
         # Kafka producer should have been called for the exposure
         mock_kafka.produce.assert_called()
+
+
+@pytest.mark.django_db
+class TestQueryExperimentResults:
+    def test_single_query_maps_rows(self, running_experiment, mock_clickhouse):
+        from apps.events.clickhouse import query_experiment_results
+
+        mock_clickhouse.query.return_value = MagicMock(result_rows=[
+            ("control", 1200, 1000, 100),
+            ("treatment", 1300, 1000, 120),
+        ])
+        results = query_experiment_results(running_experiment.id)
+        assert results["treatment"] == {
+            "exposures": 1300, "unique_users": 1000, "conversions": 120, "conversion_rate": 0.12,
+        }
+        assert mock_clickhouse.query.call_count == 1
+        params = mock_clickhouse.query.call_args.kwargs["parameters"]
+        assert params == {"experiment_id": str(running_experiment.id), "event_name": ""}
+
+    def test_uses_primary_metric_event(self, running_experiment, mock_clickhouse):
+        from apps.events.clickhouse import query_experiment_results
+        from apps.stats.models import ExperimentMetric, MetricType
+
+        ExperimentMetric.objects.create(experiment=running_experiment, name="Checkout", event_name="purchase",
+                                        metric_type=MetricType.PRIMARY)
+        query_experiment_results(running_experiment.id)
+        assert mock_clickhouse.query.call_args.kwargs["parameters"]["event_name"] == "purchase"
+
+    def test_query_failure_returns_empty(self, running_experiment, mock_clickhouse):
+        from apps.events.clickhouse import query_experiment_results
+
+        mock_clickhouse.query.side_effect = Exception("down")
+        assert query_experiment_results(running_experiment.id) == {}
