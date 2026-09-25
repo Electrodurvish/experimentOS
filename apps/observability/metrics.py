@@ -1,0 +1,174 @@
+"""
+Prometheus metrics for ExperimentOS.
+
+Tracks:
+- HTTP request latency and count (by method, endpoint, status)
+- Experiment evaluation latency and count (by experiment key)
+- Assignment counts (by experiment, variant)
+- Cache hit/miss rates
+- Event producer / consumer counts
+- Error counts
+"""
+
+import logging
+import time
+from functools import wraps
+
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+_metrics_initialized = False
+
+# Metric instances (lazy initialized)
+REQUEST_LATENCY = None
+REQUEST_COUNT = None
+EVALUATION_LATENCY = None
+EVALUATION_COUNT = None
+ASSIGNMENT_COUNT = None
+CACHE_HIT_COUNT = None
+CACHE_MISS_COUNT = None
+EVENT_PRODUCED_COUNT = None
+EVENT_CONSUMED_COUNT = None
+ERROR_COUNT = None
+
+
+def _init_metrics():
+    """Initialize Prometheus metrics. Called once."""
+    global _metrics_initialized
+    global REQUEST_LATENCY, REQUEST_COUNT
+    global EVALUATION_LATENCY, EVALUATION_COUNT, ASSIGNMENT_COUNT
+    global CACHE_HIT_COUNT, CACHE_MISS_COUNT
+    global EVENT_PRODUCED_COUNT, EVENT_CONSUMED_COUNT, ERROR_COUNT
+
+    if _metrics_initialized:
+        return
+
+    try:
+        from prometheus_client import Counter, Histogram
+
+        REQUEST_LATENCY = Histogram(
+            "http_request_duration_seconds",
+            "HTTP request latency",
+            ["method", "endpoint", "status"],
+            buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5],
+        )
+
+        REQUEST_COUNT = Counter(
+            "http_requests_total",
+            "Total HTTP requests",
+            ["method", "endpoint", "status"],
+        )
+
+        EVALUATION_LATENCY = Histogram(
+            "experiment_evaluation_duration_seconds",
+            "Experiment evaluation latency",
+            ["experiment_key"],
+            buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1],
+        )
+
+        EVALUATION_COUNT = Counter(
+            "experiment_evaluations_total",
+            "Total experiment evaluations",
+            ["experiment_key", "result"],
+        )
+
+        ASSIGNMENT_COUNT = Counter(
+            "experiment_assignments_total",
+            "Total experiment assignments",
+            ["experiment_key", "variant_key"],
+        )
+
+        CACHE_HIT_COUNT = Counter(
+            "experiment_cache_hits_total",
+            "Experiment config cache hits",
+        )
+
+        CACHE_MISS_COUNT = Counter(
+            "experiment_cache_misses_total",
+            "Experiment config cache misses",
+        )
+
+        EVENT_PRODUCED_COUNT = Counter(
+            "events_produced_total",
+            "Total events produced to Kafka",
+            ["topic"],
+        )
+
+        EVENT_CONSUMED_COUNT = Counter(
+            "events_consumed_total",
+            "Total events consumed from Kafka",
+            ["topic", "result"],
+        )
+
+        ERROR_COUNT = Counter(
+            "errors_total",
+            "Total errors",
+            ["component", "error_type"],
+        )
+
+        _metrics_initialized = True
+        logger.info("Prometheus metrics initialized")
+
+    except Exception:
+        logger.warning("Failed to initialize Prometheus metrics", exc_info=True)
+
+
+def record_request(method, endpoint, status_code, duration):
+    """Record an HTTP request metric."""
+    _init_metrics()
+    if REQUEST_LATENCY:
+        REQUEST_LATENCY.labels(method=method, endpoint=endpoint, status=str(status_code)).observe(duration)
+    if REQUEST_COUNT:
+        REQUEST_COUNT.labels(method=method, endpoint=endpoint, status=str(status_code)).inc()
+
+
+def record_evaluation(experiment_key, result, duration):
+    """Record an experiment evaluation metric."""
+    _init_metrics()
+    if EVALUATION_LATENCY:
+        EVALUATION_LATENCY.labels(experiment_key=experiment_key).observe(duration)
+    if EVALUATION_COUNT:
+        EVALUATION_COUNT.labels(experiment_key=experiment_key, result=result).inc()
+
+
+def record_assignment(experiment_key, variant_key):
+    """Record an experiment assignment metric."""
+    _init_metrics()
+    if ASSIGNMENT_COUNT:
+        ASSIGNMENT_COUNT.labels(experiment_key=experiment_key, variant_key=variant_key).inc()
+
+
+def record_cache_hit():
+    """Record a cache hit."""
+    _init_metrics()
+    if CACHE_HIT_COUNT:
+        CACHE_HIT_COUNT.inc()
+
+
+def record_cache_miss():
+    """Record a cache miss."""
+    _init_metrics()
+    if CACHE_MISS_COUNT:
+        CACHE_MISS_COUNT.inc()
+
+
+def record_event_produced(topic):
+    """Record an event produced to Kafka."""
+    _init_metrics()
+    if EVENT_PRODUCED_COUNT:
+        EVENT_PRODUCED_COUNT.labels(topic=topic).inc()
+
+
+def record_event_consumed(topic, result):
+    """Record a consumed event. result is one of processed, duplicate, invalid."""
+    _init_metrics()
+    if EVENT_CONSUMED_COUNT:
+        EVENT_CONSUMED_COUNT.labels(topic=topic, result=result).inc()
+
+
+def record_error(component, error_type):
+    """Record an error."""
+    _init_metrics()
+    if ERROR_COUNT:
+        ERROR_COUNT.labels(component=component, error_type=error_type).inc()

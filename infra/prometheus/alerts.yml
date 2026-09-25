@@ -1,0 +1,46 @@
+groups:
+  - name: experimentos
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 1) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API 5xx rate above 5%"
+
+      - alert: EvaluationLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum(rate(experiment_evaluation_duration_seconds_bucket[5m])) by (le)) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Experiment evaluation P95 above 50ms target"
+
+      - alert: ApiLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API P95 above 200ms target"
+
+      - alert: EventConsumerStalled
+        expr: sum(rate(events_produced_total[5m])) > 0 and sum(rate(events_consumed_total[5m])) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Events are being produced but the consumer is not processing them"
+
+      - alert: KafkaProduceFailures
+        expr: sum(rate(errors_total{component="kafka_producer"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka producer is failing to publish events"

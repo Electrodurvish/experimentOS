@@ -123,7 +123,8 @@ def mock_clickhouse():
     mock_client.query = MagicMock(return_value=MagicMock(result_rows=[]))
     mock_client.command = MagicMock()
     with patch("apps.events.clickhouse.get_clickhouse_client", return_value=mock_client):
-        yield mock_client
+        with patch("apps.observability.telemetry.get_clickhouse_client", return_value=mock_client):
+            yield mock_client
 
 
 @pytest.fixture

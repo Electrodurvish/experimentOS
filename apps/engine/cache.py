@@ -4,6 +4,8 @@ import logging
 import redis
 from django.conf import settings
 
+from apps.observability.metrics import record_cache_hit, record_cache_miss, record_error
+
 logger = logging.getLogger(__name__)
 
 _pool = None
@@ -41,9 +43,12 @@ def get_cached_experiment_config(project_id, experiment_key):
         client = get_redis_client()
         data = client.get(_experiment_config_key(project_id, experiment_key))
         if data:
+            record_cache_hit()
             return json.loads(data)
     except redis.RedisError:
         logger.warning("Redis read failed for experiment config", exc_info=True)
+        record_error("redis", "read_failed")
+    record_cache_miss()
     return None
 
 

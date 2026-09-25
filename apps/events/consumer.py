@@ -8,6 +8,7 @@ from django.conf import settings
 from apps.engine.cache import get_redis_client
 from apps.events.clickhouse import insert_conversion, insert_exposure
 from apps.events.producer import TOPIC_CONVERSIONS, TOPIC_EXPOSURES
+from apps.observability.metrics import record_event_consumed
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +35,16 @@ def process_exposure(event):
     event_id = event.get("event_id")
     if not event_id:
         logger.warning("Exposure event missing event_id, skipping")
+        record_event_consumed(TOPIC_EXPOSURES, "invalid")
         return
 
     if is_duplicate(event_id):
         logger.debug("Duplicate exposure event %s, skipping", event_id)
+        record_event_consumed(TOPIC_EXPOSURES, "duplicate")
         return
 
     insert_exposure(event)
+    record_event_consumed(TOPIC_EXPOSURES, "processed")
     logger.debug("Processed exposure event %s", event_id)
 
 
@@ -49,13 +53,16 @@ def process_conversion(event):
     event_id = event.get("event_id")
     if not event_id:
         logger.warning("Conversion event missing event_id, skipping")
+        record_event_consumed(TOPIC_CONVERSIONS, "invalid")
         return
 
     if is_duplicate(event_id):
         logger.debug("Duplicate conversion event %s, skipping", event_id)
+        record_event_consumed(TOPIC_CONVERSIONS, "duplicate")
         return
 
     insert_conversion(event)
+    record_event_consumed(TOPIC_CONVERSIONS, "processed")
     logger.debug("Processed conversion event %s", event_id)
 
 
@@ -75,6 +82,13 @@ def run_consumer():
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+
+    metrics_port = getattr(settings, "CONSUMER_METRICS_PORT", 0)
+    if metrics_port:
+        from prometheus_client import start_http_server
+
+        start_http_server(metrics_port)
+        logger.info("Consumer metrics exposed on :%s/metrics", metrics_port)
 
     consumer = Consumer({
         "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,

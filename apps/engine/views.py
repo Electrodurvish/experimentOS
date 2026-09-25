@@ -1,3 +1,4 @@
+import time
 from dataclasses import asdict
 
 from rest_framework import permissions, status
@@ -18,6 +19,9 @@ from apps.engine.serializers import (
     EvaluationResultSerializer,
 )
 from apps.experiments.models import Experiment
+from apps.observability.errors import tag_experiment
+from apps.observability.metrics import record_assignment, record_evaluation
+from apps.observability.tracing import add_experiment_attributes, experiment_span
 
 
 class EvaluateView(APIView):
@@ -89,12 +93,25 @@ class EvaluateView(APIView):
             if isinstance(exp, dict):
                 exp = _reconstruct_experiment_from_cache(exp)
 
-            result = evaluate_experiment(
-                experiment=exp,
-                user_id=data["user_id"],
-                context=data["context"],
-            )
+            with experiment_span("experiment.evaluate", experiment_id=exp.id, experiment_key=exp.key) as span:
+                start = time.perf_counter()
+                result = evaluate_experiment(
+                    experiment=exp,
+                    user_id=data["user_id"],
+                    context=data["context"],
+                )
+                record_evaluation(exp.key, result.reason or "unknown", time.perf_counter() - start)
+                add_experiment_attributes(
+                    span,
+                    variant=result.variant_key,
+                    version=result.version_number,
+                    bucket=result.bucket,
+                )
             evaluations[key] = EvaluationResultSerializer(asdict(result)).data
+
+            if result.assigned:
+                record_assignment(exp.key, result.variant_key)
+                tag_experiment(exp.key, result.variant_key, result.version_number)
 
             # Auto-produce exposure event to Kafka
             if result.assigned:

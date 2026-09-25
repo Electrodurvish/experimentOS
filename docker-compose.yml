@@ -106,6 +106,73 @@ services:
     env_file:
       - .env
 
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: ["-config.file=/etc/tempo.yml"]
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./infra/tempo/tempo.yml:/etc/tempo.yml
+      - tempo_data:/var/tempo
+
+  loki:
+    image: grafana/loki:3.1.0
+    command: ["-config.file=/etc/loki/loki.yml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/loki/loki.yml:/etc/loki/loki.yml
+      - loki_data:/loki
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+    volumes:
+      - ./infra/otel/otel-collector.yml:/etc/otelcol-contrib/config.yaml
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+
   event-consumer:
     build:
       context: .
@@ -113,6 +180,8 @@ services:
     command: python manage.py run_consumer
     volumes:
       - .:/app
+    environment:
+      CONSUMER_METRICS_PORT: "9100"
     depends_on:
       kafka:
         condition: service_healthy
@@ -127,3 +196,7 @@ volumes:
   postgres_data:
   cassandra_data:
   clickhouse_data:
+  prometheus_data:
+  grafana_data:
+  tempo_data:
+  loki_data:

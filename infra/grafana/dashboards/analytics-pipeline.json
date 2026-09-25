@@ -1,0 +1,128 @@
+{
+  "uid": "xos-pipeline",
+  "title": "Analytics Pipeline",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "tags": [
+    "experimentos"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Events produced",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(events_produced_total[5m])) by (topic)",
+          "legendFormat": "{{topic}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Events consumed",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(events_consumed_total[5m])) by (topic, result)",
+          "legendFormat": "{{topic}} {{result}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Produce/consume gap (approx. lag growth)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(events_produced_total[5m])) - sum(rate(events_consumed_total[5m]))",
+          "legendFormat": "gap"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Duplicate ratio",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(events_consumed_total{result=\"duplicate\"}[5m])) / clamp_min(sum(rate(events_consumed_total[5m])), 1)",
+          "legendFormat": "duplicates"
+        }
+      ]
+    }
+  ]
+}

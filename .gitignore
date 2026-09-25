@@ -33,3 +33,4 @@ htmlcov/
 *~
 
 poetry.lock
+.DS_Store

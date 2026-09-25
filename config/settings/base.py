@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "apps.events",
     "apps.stats",
     "apps.intelligence",
+    "apps.observability.apps.ObservabilityConfig",
 ]
 
 MIDDLEWARE = [
@@ -48,6 +49,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "apps.observability.middleware.MetricsMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -150,3 +152,16 @@ CLICKHOUSE_DATABASE = env("CLICKHOUSE_DATABASE", default="experimentos")
 
 # Event deduplication
 EVENT_DEDUP_TTL = 86400  # 24 hours
+
+# OpenTelemetry
+OTEL_ENABLED = env.bool("OTEL_ENABLED", default=False)
+OTEL_SERVICE_NAME = env("OTEL_SERVICE_NAME", default="experimentos-api")
+OTEL_EXPORTER_OTLP_ENDPOINT = env("OTEL_EXPORTER_OTLP_ENDPOINT", default="http://localhost:4317")
+
+# Prometheus port for the standalone Kafka consumer process (0 = disabled)
+CONSUMER_METRICS_PORT = env.int("CONSUMER_METRICS_PORT", default=0)
+
+# Sentry
+SENTRY_DSN = env("SENTRY_DSN", default="")
+SENTRY_ENVIRONMENT = env("SENTRY_ENVIRONMENT", default="development")
+SENTRY_TRACES_SAMPLE_RATE = env.float("SENTRY_TRACES_SAMPLE_RATE", default=0.0)

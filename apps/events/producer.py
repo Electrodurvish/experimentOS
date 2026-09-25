@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 
 from django.conf import settings
 
+from apps.observability.metrics import record_error, record_event_produced
+
 logger = logging.getLogger(__name__)
 
 _producer = None
@@ -79,8 +81,10 @@ def produce_exposure(
             callback=_delivery_callback,
         )
         producer.poll(0)
+        record_event_produced(TOPIC_EXPOSURES)
     except Exception:
         logger.warning("Failed to produce exposure event", exc_info=True)
+        record_error("kafka_producer", "produce_failed")
 
 
 def produce_conversion(user_id, event_name, value=0.0, metadata=None, event_id=None):
@@ -107,8 +111,10 @@ def produce_conversion(user_id, event_name, value=0.0, metadata=None, event_id=N
             callback=_delivery_callback,
         )
         producer.poll(0)
+        record_event_produced(TOPIC_CONVERSIONS)
     except Exception:
         logger.warning("Failed to produce conversion event", exc_info=True)
+        record_error("kafka_producer", "produce_failed")
 
 
 def flush_producer(timeout=5.0):
