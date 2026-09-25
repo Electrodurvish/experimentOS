@@ -1,0 +1,179 @@
+import type { ReactNode } from 'react';
+import { ApiError, isNotAvailable, type ExperimentStatus } from '../api';
+import { healthTone, type Tone } from '../lib/format';
+
+export function Card({
+  title,
+  actions,
+  children,
+  className = '',
+}: {
+  title?: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`card ${className}`}>
+      {(title || actions) && (
+        <header className="card-header">
+          {title && <h2 className="card-title">{title}</h2>}
+          {actions && <div className="card-actions">{actions}</div>}
+        </header>
+      )}
+      {children}
+    </section>
+  );
+}
+
+export function Badge({ tone = 'neutral', children, title }: { tone?: Tone; children: ReactNode; title?: string }) {
+  return (
+    <span className={`badge badge-${tone}`} title={title}>
+      {children}
+    </span>
+  );
+}
+
+const STATUS_TONES: Record<ExperimentStatus, Tone> = {
+  DRAFT: 'neutral',
+  REVIEW: 'info',
+  APPROVED: 'info',
+  RUNNING: 'good',
+  PAUSED: 'warn',
+  COMPLETED: 'neutral',
+  ARCHIVED: 'neutral',
+};
+
+export function StatusBadge({ status }: { status: ExperimentStatus | string }) {
+  const tone = STATUS_TONES[status as ExperimentStatus] ?? 'neutral';
+  return (
+    <Badge tone={tone}>
+      {status === 'RUNNING' && <span className="dot" aria-hidden="true" />}
+      {status}
+    </Badge>
+  );
+}
+
+export function HealthBadge({ score, loading }: { score?: number | null; loading?: boolean }) {
+  if (loading) return <Badge tone="neutral">Health …</Badge>;
+  if (score === undefined || score === null) return <Badge tone="neutral">Health —</Badge>;
+  const tone = healthTone(score);
+  const label = tone === 'good' ? 'healthy' : tone === 'warn' ? 'watch' : 'at risk';
+  return (
+    <Badge tone={tone} title={`Health score ${score}/100 (${label})`}>
+      Health {score}/100
+    </Badge>
+  );
+}
+
+export function Loading({ label = 'Loading…' }: { label?: string }) {
+  return (
+    <div className="loading" role="status">
+      <span className="spinner" aria-hidden="true" />
+      {label}
+    </div>
+  );
+}
+
+export function ErrorBox({ error, onRetry, feature }: { error: unknown; onRetry?: () => void; feature?: string }) {
+  if (!error) return null;
+  if (feature && isNotAvailable(error)) {
+    return (
+      <div className="notice notice-info" role="status">
+        <strong>{feature} isn’t available yet.</strong> The backend doesn’t expose this endpoint in this
+        deployment. It will light up automatically once it ships.
+      </div>
+    );
+  }
+  const message =
+    error instanceof ApiError
+      ? error.message
+      : error instanceof Error
+        ? error.message
+        : 'Something went wrong.';
+  const status = error instanceof ApiError ? error.status : null;
+  return (
+    <div className="notice notice-error" role="alert">
+      <span>
+        {status ? <strong>{status === 403 ? 'Not permitted' : `Error ${status}`}: </strong> : null}
+        {message}
+      </span>
+      {onRetry && (
+        <button type="button" className="btn btn-small" onClick={onRetry}>
+          Retry
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function Empty({ children }: { children: ReactNode }) {
+  return <div className="empty">{children}</div>;
+}
+
+export function Stat({ label, value, sub, tone }: { label: string; value: ReactNode; sub?: ReactNode; tone?: Tone }) {
+  return (
+    <div className={`stat ${tone ? `stat-${tone}` : ''}`}>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+      {sub && <div className="stat-sub">{sub}</div>}
+    </div>
+  );
+}
+
+export function Pagination({
+  page,
+  count,
+  pageSize = 20,
+  onPage,
+}: {
+  page: number;
+  count: number;
+  pageSize?: number;
+  onPage: (page: number) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(count / pageSize));
+  if (pages <= 1) return null;
+  return (
+    <nav className="pagination" aria-label="Pagination">
+      <button type="button" className="btn btn-small" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+        ← Prev
+      </button>
+      <span className="muted">
+        Page {page} of {pages} · {count} total
+      </span>
+      <button type="button" className="btn btn-small" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+        Next →
+      </button>
+    </nav>
+  );
+}
+
+export function Field({
+  label,
+  hint,
+  children,
+  htmlFor,
+}: {
+  label: string;
+  hint?: ReactNode;
+  children: ReactNode;
+  htmlFor?: string;
+}) {
+  return (
+    <div className="field">
+      <label htmlFor={htmlFor}>{label}</label>
+      {children}
+      {hint && <div className="hint">{hint}</div>}
+    </div>
+  );
+}
+
+export function GeneratedBy({ by, model }: { by?: string; model?: string | null }) {
+  if (!by) return null;
+  return (
+    <span className="muted small">
+      Generated by {by === 'llm' ? `LLM${model ? ` (${model})` : ''}` : 'template'}
+    </span>
+  );
+}
