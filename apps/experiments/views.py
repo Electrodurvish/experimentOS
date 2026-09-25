@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
-from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view, inline_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -277,6 +278,34 @@ class ExperimentViewSet(viewsets.ModelViewSet):
         filters=False,
         responses=ExperimentVersionSerializer(many=True),
     )
+    @extend_schema(
+        summary="Reconstruct the experiment at a past instant (time travel)",
+        tags=["Experiments"],
+        parameters=[OpenApiParameter("at", OpenApiTypes.DATETIME, required=True,
+                                     description="ISO-8601 timestamp")],
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    @action(detail=True, methods=["get"])
+    def history(self, request, pk=None):
+        from django.utils.dateparse import parse_datetime
+
+        from apps.experiments.history import experiment_at
+
+        experiment = self.get_object()
+        at = parse_datetime(request.query_params.get("at", ""))
+        if at is None:
+            return Response({"detail": "Query parameter 'at' must be an ISO-8601 datetime."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if at.tzinfo is None:
+            from datetime import timezone as dt_timezone
+
+            at = at.replace(tzinfo=dt_timezone.utc)
+        snapshot = experiment_at(experiment, at)
+        if snapshot is None:
+            return Response({"detail": "Experiment did not exist at that time."},
+                            status=status.HTTP_404_NOT_FOUND)
+        return Response({"experiment_id": str(experiment.id), "experiment_key": experiment.key, **snapshot})
+
     @action(detail=True, methods=["get"])
     def versions(self, request, pk=None):
         experiment = self.get_object()

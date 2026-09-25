@@ -14,6 +14,7 @@ from apps.engine.cache import (
     get_cached_experiment_config,
     serialize_experiment_config,
 )
+from apps.engine.models import Assignment
 from apps.engine.serializers import (
     DebugRequestSerializer,
     DebugStepSerializer,
@@ -331,3 +332,128 @@ class _CachedExperiment:
 def _reconstruct_experiment_from_cache(config):
     """Reconstruct an experiment-like object from a cached dict."""
     return _CachedExperiment(config)
+
+
+def _explain_steps(steps):
+    """Render debug steps as the plan's checklist: ✓ passed, ✗ failed, • informational."""
+    marks = {True: "✓", False: "✗", None: "•"}
+    return [f"{marks[step.passed]} {step.detail}" for step in steps]
+
+
+class UserAssignmentsView(APIView):
+    """
+    GET /api/v1/users/{user_id}/assignments/
+    Every recorded assignment for a user, with the version that produced it.
+    """
+
+    def get_rbac_organization_id(self):
+        return NO_ORGANIZATION  # filtered to the caller's organizations below
+
+    @extend_schema(
+        summary="List a user's assignments across experiments",
+        tags=["Evaluation"],
+        responses=inline_serializer(name="UserAssignments", fields={
+            "user_id": serializers.CharField(),
+            "assignments": serializers.ListField(child=serializers.JSONField()),
+        }),
+    )
+    def get(self, request, user_id):
+        assignments = Assignment.objects.filter(user_id=user_id).select_related(
+            "experiment", "version", "variant",
+        ).order_by("-assigned_at")
+        if not request.user.is_superuser:
+            assignments = assignments.filter(
+                experiment__project__organization_id__in=accessible_organization_ids(request.user)
+            )
+        return Response({
+            "user_id": user_id,
+            "assignments": [
+                {
+                    "experiment_id": str(a.experiment_id),
+                    "experiment_key": a.experiment.key,
+                    "version_number": a.version.version_number,
+                    "variant_key": a.variant.key,
+                    "bucket": a.bucket,
+                    "context": a.context,
+                    "assigned_at": a.assigned_at.isoformat(),
+                }
+                for a in assignments[:200]
+            ],
+        })
+
+
+class ExperimentUserDebugView(APIView):
+    """
+    GET /api/v1/experiments/{experiment_id}/users/{user_id}/debug/?context={"country":"IN"}
+
+    Explains why a user receives (or does not receive) a variant: replays the
+    evaluation without side effects, and shows the recorded assignment together
+    with the exact configuration of the version that produced it (time travel).
+    When no context is given, the context recorded with the last assignment is used.
+    """
+
+    @extend_schema(
+        summary="Explain a user's assignment (debugger)",
+        tags=["Evaluation"],
+        responses=inline_serializer(name="UserDebug", fields={
+            "user_id": serializers.CharField(),
+            "experiment_key": serializers.CharField(),
+            "result": serializers.JSONField(),
+            "evaluation_steps": serializers.JSONField(),
+            "explanation": serializers.ListField(child=serializers.CharField()),
+            "recorded_assignment": serializers.JSONField(allow_null=True),
+            "sticky": serializers.JSONField(allow_null=True),
+        }),
+    )
+    def get(self, request, experiment_id, user_id):
+        import json
+
+        from apps.engine import assigner
+        from apps.experiments.history import version_config
+
+        experiment = Experiment.objects.select_related("current_version").prefetch_related(
+            "current_version__variants", "current_version__targeting",
+        ).filter(id=experiment_id).first()
+        if experiment is None:
+            return Response({"detail": "Experiment not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        recorded = Assignment.objects.filter(user_id=user_id, experiment=experiment).select_related(
+            "version", "variant",
+        ).order_by("-assigned_at").first()
+
+        raw_context = request.query_params.get("context")
+        if raw_context:
+            try:
+                context = json.loads(raw_context)
+            except json.JSONDecodeError:
+                return Response({"detail": "context must be JSON."}, status=status.HTTP_400_BAD_REQUEST)
+            if not isinstance(context, dict):
+                return Response({"detail": "context must be a JSON object."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            context = recorded.context if recorded else {}
+
+        result, steps = evaluate_experiment(experiment, user_id, context, debug=True, persist=False)
+        sticky = assigner.get_sticky_assignment(user_id, str(experiment.id))  # same store as evaluation
+
+        return Response({
+            "user_id": user_id,
+            "experiment_key": experiment.key,
+            "context": context,
+            "result": EvaluationResultSerializer(asdict(result)).data,
+            "evaluation_steps": DebugStepSerializer([asdict(s) for s in steps], many=True).data,
+            "explanation": _explain_steps(steps),
+            "recorded_assignment": {
+                "version_number": recorded.version.version_number,
+                "variant_key": recorded.variant.key,
+                "bucket": recorded.bucket,
+                "assigned_at": recorded.assigned_at.isoformat(),
+                "context": recorded.context,
+                "config_at_assignment": version_config(recorded.version),
+            } if recorded else None,
+            "sticky": {
+                "variant_key": sticky.variant_key,
+                "bucket": sticky.bucket,
+                "version_number": sticky.version_number,
+                "assigned_at": sticky.assigned_at.isoformat() if sticky.assigned_at else None,
+            } if sticky else None,
+        })
