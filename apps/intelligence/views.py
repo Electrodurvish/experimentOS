@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.schema import error_response
+from apps.decisions.context import control_and_proportions
 from apps.events.clickhouse import query_experiment_results
 from apps.experiments.models import Experiment
 from apps.intelligence.health import compute_health_score
@@ -112,7 +113,8 @@ class ExperimentHealthView(APIView):
             )
 
         raw_variants = query_experiment_results(str(experiment.id))
-        health = compute_health_score(raw_variants)
+        _, proportions = control_and_proportions(experiment)
+        health = compute_health_score(raw_variants, expected_proportions=proportions)
 
         return Response({
             "experiment_id": str(experiment.id),
@@ -153,9 +155,12 @@ class ExperimentSegmentsView(APIView):
             # Try to compute aggregate lift from ClickHouse data
             raw_variants = query_experiment_results(str(experiment.id))
             if raw_variants:
-                analysis = analyze_experiment(raw_variants)
+                control_key, proportions = control_and_proportions(experiment)
+                analysis = analyze_experiment(
+                    raw_variants, control_key=control_key, expected_proportions=proportions,
+                )
                 for key, v in analysis["variants"].items():
-                    if "lift" in v:
+                    if v.get("lift") is not None:
                         aggregate_lift = v["lift"]
                         break
 

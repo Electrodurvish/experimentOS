@@ -39,7 +39,7 @@ def build_experiment_evidence(experiment, segments=None):
             f"{v.get('conversion_rate', 0) * 100:.2f}% (95% CI {v.get('ci_lower', 0) * 100:.2f}–"
             f"{v.get('ci_upper', 0) * 100:.2f}%)"
         )
-        if "lift" in v:
+        if v.get("lift") is not None:
             statement += f", lift {v['lift'] * 100:+.1f}% vs control (p={v['p_value']:.4f})"
         add("results", statement + ".", variant=key)
 

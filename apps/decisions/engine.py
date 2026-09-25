@@ -253,7 +253,7 @@ def _build_checks(inputs, policy, control_key, evidence):
 
     # Primary metric
     winner = _best_significant_winner(stats, control_key)
-    treatments = {k: v for k, v in variants.items() if k != control_key and "lift" in v}
+    treatments = {k: v for k, v in variants.items() if k != control_key and v.get("lift") is not None}
     if winner:
         key, data = winner
         detail = f"{key} lift {data['lift'] * 100:+.1f}% (p={data['p_value']:.4f})."
@@ -395,7 +395,7 @@ def _significant_regressions(stats, control_key):
     variants = (stats or {}).get("variants") or {}
     return [
         (k, v) for k, v in variants.items()
-        if k != control_key and v.get("is_significant") and v.get("lift", 0) < 0
+        if k != control_key and v.get("is_significant") and (v.get("lift") or 0) < 0
     ]
 
 
@@ -403,7 +403,7 @@ def _best_significant_winner(stats, control_key):
     variants = (stats or {}).get("variants") or {}
     winners = [
         (k, v) for k, v in variants.items()
-        if k != control_key and v.get("is_significant") and v.get("lift", 0) > 0
+        if k != control_key and v.get("is_significant") and (v.get("lift") or 0) > 0
     ]
     return max(winners, key=lambda kv: kv[1]["lift"]) if winners else None
 

@@ -93,7 +93,7 @@ class TestRelativeLift:
 
     def test_zero_control(self):
         result = relative_lift(0, 10000, 100, 10000)
-        assert result["lift"] == float("inf")
+        assert result["lift"] is None
 
     def test_zero_total(self):
         result = relative_lift(0, 0, 0, 0)

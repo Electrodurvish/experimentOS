@@ -47,18 +47,19 @@ class ExperimentVersionSerializer(serializers.ModelSerializer):
 class ExperimentListSerializer(serializers.ModelSerializer):
     current_version = ExperimentVersionSerializer(read_only=True)
     allowed_transitions = serializers.SerializerMethodField()
+    organization = serializers.UUIDField(source="project.organization_id", read_only=True)
 
     class Meta:
         model = Experiment
         fields = [
-            "id", "key", "name", "description", "hypothesis",
+            "id", "project", "organization", "key", "name", "description", "hypothesis",
             "experiment_type", "status", "owner", "current_version",
             "rollout_percentage", "started_at", "ended_at", "allowed_transitions",
             "created_at", "updated_at",
         ]
         read_only_fields = [
-            "id", "status", "current_version", "rollout_percentage", "started_at", "ended_at",
-            "allowed_transitions", "created_at", "updated_at",
+            "id", "project", "organization", "status", "current_version", "rollout_percentage",
+            "started_at", "ended_at", "allowed_transitions", "created_at", "updated_at",
         ]
 
     def get_allowed_transitions(self, obj) -> list[str]:

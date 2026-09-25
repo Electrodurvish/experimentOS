@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.schema import API_KEY_AUTH, error_response
 from apps.common.throttling import APIKeyRateThrottle
+from apps.decisions.context import control_and_proportions
 from apps.events.clickhouse import query_experiment_results
 from apps.events.producer import produce_conversion
 from apps.events.serializers import TrackEventSerializer
@@ -119,7 +120,8 @@ class ExperimentResultsView(APIView):
             )
 
         raw_variants = query_experiment_results(str(experiment.id))
-        analysis = analyze_experiment(raw_variants)
+        control_key, proportions = control_and_proportions(experiment)
+        analysis = analyze_experiment(raw_variants, control_key=control_key, expected_proportions=proportions)
 
         return Response({
             "experiment_id": str(experiment.id),
@@ -156,7 +158,8 @@ class SRMCheckView(APIView):
             )
 
         raw_variants = query_experiment_results(str(experiment.id))
-        analysis = analyze_experiment(raw_variants)
+        control_key, proportions = control_and_proportions(experiment)
+        analysis = analyze_experiment(raw_variants, control_key=control_key, expected_proportions=proportions)
 
         srm = analysis.get("srm")
         if not srm:

@@ -154,10 +154,11 @@ def relative_lift(c_conv, c_total, t_conv, t_total, confidence=0.95):
     p_t = t_conv / t_total
 
     if p_c == 0:
+        # Relative lift is undefined against a zero baseline (JSON has no infinity).
         return {
-            "lift": 0.0 if p_t == 0 else float("inf"),
-            "lift_ci_lower": 0.0,
-            "lift_ci_upper": 0.0,
+            "lift": 0.0 if p_t == 0 else None,
+            "lift_ci_lower": 0.0 if p_t == 0 else None,
+            "lift_ci_upper": 0.0 if p_t == 0 else None,
             "absolute_difference": round(p_t - p_c, 6),
         }
 

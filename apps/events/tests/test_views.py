@@ -185,3 +185,39 @@ class TestParseEventTime:
         for call in mock_clickhouse.insert.call_args_list:
             row = call.args[1][0]
             assert isinstance(row[-1], datetime)
+
+
+@pytest.mark.django_db
+class TestUnequalSplitSRM:
+    def test_srm_uses_version_split(self, authenticated_client, running_experiment):
+        from unittest.mock import patch
+
+        version = running_experiment.current_version
+        control = version.variants.get(key="control")
+        treatment = version.variants.get(key="treatment")
+        control.traffic_percentage, control.bucket_end = 2000, 1999
+        treatment.traffic_percentage, treatment.bucket_start = 8000, 2000
+        control.save()
+        treatment.save()
+        data = {
+            "control": {"exposures": 2000, "unique_users": 2000, "conversions": 200, "conversion_rate": 0.1},
+            "treatment": {"exposures": 8000, "unique_users": 8000, "conversions": 800, "conversion_rate": 0.1},
+        }
+        with patch("apps.events.views.query_experiment_results", return_value=data):
+            response = authenticated_client.get(f"/api/v1/experiments/{running_experiment.id}/results/srm/")
+        assert response.data["is_mismatch"] is False
+        assert response.data["expected_proportions"] == {"control": 0.2, "treatment": 0.8}
+
+    def test_zero_control_rate_serializes(self, authenticated_client, running_experiment):
+        from unittest.mock import patch
+
+        data = {
+            "control": {"exposures": 1000, "unique_users": 1000, "conversions": 0, "conversion_rate": 0.0},
+            "treatment": {"exposures": 1000, "unique_users": 1000, "conversions": 50, "conversion_rate": 0.05},
+        }
+        with patch("apps.events.views.query_experiment_results", return_value=data):
+            response = authenticated_client.get(f"/api/v1/experiments/{running_experiment.id}/results/")
+        assert response.status_code == 200
+        assert response.data["variants"]["treatment"]["lift"] is None
+        response = authenticated_client.get("/api/v1/experiments/?page_size=1")
+        assert response.data["results"][0]["project"] == running_experiment.project_id

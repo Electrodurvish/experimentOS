@@ -64,7 +64,7 @@ def gather_inputs(experiment, segments=None, interactions=None):
     segment_analysis = None
     if segments:
         aggregate_lift = next(
-            (v["lift"] for k, v in stats["variants"].items() if k != control_key and "lift" in v),
+            (v["lift"] for k, v in stats["variants"].items() if k != control_key and v.get("lift") is not None),
             0.0,
         )
         segment_analysis = analyze_segments(segments, aggregate_lift)
