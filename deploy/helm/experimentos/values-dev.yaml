@@ -1,0 +1,72 @@
+# Dev / kind / minikube overrides.
+#   helm upgrade --install experimentos deploy/helm/experimentos \
+#     -n experimentos-dev --create-namespace -f deploy/helm/experimentos/values-dev.yaml
+#
+# Assumes the stateful dependencies run in the same namespace under the
+# docker-compose service names (e.g. installed with Bitnami charts), or edit
+# the hosts below.
+
+image:
+  api:
+    repository: experimentos-api     # locally built: docker build -t experimentos-api .
+    tag: dev
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: experimentos-frontend
+    tag: dev
+    pullPolicy: IfNotPresent
+
+config:
+  DJANGO_SETTINGS_MODULE: config.settings.production
+  ALLOWED_HOSTS: "experimentos.localtest.me"
+  CSRF_TRUSTED_ORIGINS: "http://experimentos.localtest.me"
+  CORS_ALLOWED_ORIGINS: "http://experimentos.localtest.me"
+  LOG_LEVEL: DEBUG
+  # No TLS on a local ingress.
+  SECURE_SSL_REDIRECT: "False"
+  SECURE_HSTS_SECONDS: "0"
+  CASSANDRA_CONTACT_POINTS: "cassandra"
+  CASSANDRA_PORT: "9042"
+  CASSANDRA_KEYSPACE: experimentos
+  CASSANDRA_STICKY_ENABLED: "True"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  KAFKA_ENABLED: "True"
+  CLICKHOUSE_HOST: "clickhouse"
+  CLICKHOUSE_PORT: "8123"
+  CLICKHOUSE_DATABASE: experimentos
+  OTEL_ENABLED: "False"
+  SENTRY_ENVIRONMENT: dev
+  DECISION_INTERVAL_SECONDS: "300"
+  HEALTH_INTERVAL_SECONDS: "900"
+
+# Dev only - never commit real credentials. Use existingSecret elsewhere.
+secrets:
+  SECRET_KEY: dev-insecure-secret-key-change-me
+  DATABASE_URL: postgres://experimentos:experimentos@postgresql:5432/experimentos
+  REDIS_URL: redis://redis-master:6379/0
+  CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+
+api:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  pdb:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+frontend:
+  replicaCount: 1
+
+ingress:
+  enabled: true
+  className: nginx
+  host: experimentos.localtest.me
+  tls: []
+
+setupJob:
+  enabled: true

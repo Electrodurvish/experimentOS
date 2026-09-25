@@ -1,0 +1,26 @@
+# Overlay for load testing against the local docker-compose stack.
+#
+#   docker compose -f docker-compose.yml -f loadtest/docker-compose.loadtest.yml up -d --build
+#
+# The base compose file runs Django's development server (runserver), which is
+# single-process and not representative. This overlay runs the api under
+# gunicorn (as in Kubernetes), turns DEBUG off, and raises the per-API-key SDK
+# throttle so a single seeded key can drive more than 100 req/s.
+services:
+  api:
+    command: >-
+      gunicorn config.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers ${LT_GUNICORN_WORKERS:-1}
+      --threads ${LT_GUNICORN_THREADS:-8}
+      --worker-class gthread
+      --timeout 30
+      --access-logfile /dev/null
+      --error-logfile -
+    environment:
+      DEBUG: "False"
+      SDK_THROTTLE_RATE: ${LT_SDK_THROTTLE_RATE:-10000000/min}
+      AUTH_THROTTLE_RATE: "1000/min"
+      # OTLP export of every request span adds overhead; enable explicitly when
+      # you want traces of the load test.
+      OTEL_ENABLED: ${LT_OTEL_ENABLED:-False}

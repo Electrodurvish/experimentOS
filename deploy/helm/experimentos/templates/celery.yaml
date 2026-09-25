@@ -1,0 +1,123 @@
+{{- if .Values.celeryWorker.enabled }}
+{{- $c := .Values.celeryWorker }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "experimentos.fullname" . }}-celery-worker
+  labels:
+    {{- include "experimentos.componentLabels" (dict "ctx" . "component" "celery-worker") | nindent 4 }}
+spec:
+  replicas: {{ $c.replicaCount }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "experimentos.selectorLabels" (dict "ctx" . "component" "celery-worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "experimentos.selectorLabels" (dict "ctx" . "component" "celery-worker") | nindent 8 }}
+      annotations:
+        {{- include "experimentos.configChecksums" . | nindent 8 }}
+        {{- with $c.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "experimentos.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      # acks_late=True in settings: unfinished tasks are redelivered by RabbitMQ.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: celery-worker
+          image: {{ include "experimentos.apiImage" . }}
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          command: ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency={{ $c.concurrency }}"]
+          envFrom:
+            {{- include "experimentos.envFrom" . | nindent 12 }}
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: experimentos-celery-worker
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $c.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            {{- include "experimentos.tmpVolumeMount" . | nindent 12 }}
+      volumes:
+        {{- include "experimentos.tmpVolume" . | nindent 8 }}
+      {{- include "experimentos.scheduling" $c | nindent 6 }}
+{{- end }}
+{{- if .Values.celeryBeat.enabled }}
+{{- $b := .Values.celeryBeat }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "experimentos.fullname" . }}-celery-beat
+  labels:
+    {{- include "experimentos.componentLabels" (dict "ctx" . "component" "celery-beat") | nindent 4 }}
+spec:
+  # Exactly one scheduler: two beats would enqueue every periodic task twice.
+  # Recreate guarantees the old pod is gone before the new one starts.
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "experimentos.selectorLabels" (dict "ctx" . "component" "celery-beat") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "experimentos.selectorLabels" (dict "ctx" . "component" "celery-beat") | nindent 8 }}
+      annotations:
+        {{- include "experimentos.configChecksums" . | nindent 8 }}
+        {{- with $b.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "experimentos.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: celery-beat
+          image: {{ include "experimentos.apiImage" . }}
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          # Schedule state lives on an emptyDir: losing it only means intervals
+          # restart from pod start, which is acceptable for these jobs.
+          command: ["celery", "-A", "config", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
+          envFrom:
+            {{- include "experimentos.envFrom" . | nindent 12 }}
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: experimentos-celery-beat
+            {{- with $b.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml $b.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            {{- include "experimentos.tmpVolumeMount" . | nindent 12 }}
+      volumes:
+        {{- include "experimentos.tmpVolume" . | nindent 8 }}
+      {{- include "experimentos.scheduling" $b | nindent 6 }}
+{{- end }}

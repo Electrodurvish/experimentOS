@@ -1,0 +1,355 @@
+# Default values for the ExperimentOS chart.
+#
+# Stateful dependencies (PostgreSQL, Redis, Kafka, ClickHouse, Cassandra/Scylla,
+# RabbitMQ) are NOT deployed by this chart. Point the connection strings in
+# `config` / `secrets` at managed services (RDS, ElastiCache, MSK, ...) or at
+# separately-installed operators/charts. See deploy/terraform/README.md.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  api:
+    repository: ghcr.io/electrodurvish/experimentos-api
+    # Empty = Chart.appVersion. CI writes the git SHA here in values-prod.yaml.
+    tag: ""
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: ghcr.io/electrodurvish/experimentos-frontend
+    tag: ""
+    pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # e.g. eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/experimentos
+
+# Pod-level security defaults for the Django containers (image runs as uid 10001).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ---------------------------------------------------------------------------
+# Non-secret environment (rendered into a ConfigMap, loaded with envFrom).
+# ---------------------------------------------------------------------------
+config:
+  DJANGO_SETTINGS_MODULE: config.settings.production
+  # ALLOWED_HOSTS for the api pods is extended at runtime with the pod IP so
+  # kubelet probes and Prometheus scrapes (Host: <podIP>:8000) are accepted.
+  ALLOWED_HOSTS: "experimentos.example.com"
+  CSRF_TRUSTED_ORIGINS: "https://experimentos.example.com"
+  CORS_ALLOWED_ORIGINS: "https://experimentos.example.com"
+  LOG_LEVEL: INFO
+  SECURE_SSL_REDIRECT: "True"
+  CASSANDRA_CONTACT_POINTS: "cassandra"
+  CASSANDRA_PORT: "9042"
+  CASSANDRA_KEYSPACE: experimentos
+  CASSANDRA_STICKY_ENABLED: "True"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  KAFKA_ENABLED: "True"
+  CLICKHOUSE_HOST: "clickhouse"
+  CLICKHOUSE_PORT: "8123"
+  CLICKHOUSE_DATABASE: experimentos
+  OTEL_ENABLED: "False"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+  SENTRY_ENVIRONMENT: production
+  SENTRY_TRACES_SAMPLE_RATE: "0.0"
+  DECISION_INTERVAL_SECONDS: "300"
+  HEALTH_INTERVAL_SECONDS: "900"
+  # DRF throttles (counters in the Redis-backed Django cache). SDK_THROTTLE_RATE
+  # is per API key: 6000/min = 100 req/s per key. Raise it for load tests.
+  SDK_THROTTLE_RATE: "6000/min"
+  USER_THROTTLE_RATE: "1200/min"
+  AUTH_THROTTLE_RATE: "20/min"
+
+# ---------------------------------------------------------------------------
+# Secret environment.
+# Prefer `existingSecret` (created by External Secrets / Sealed Secrets / SOPS)
+# in real environments; the inline `secrets` map is for dev clusters only.
+# Keys expected: SECRET_KEY, DATABASE_URL, REDIS_URL, CELERY_BROKER_URL and
+# optionally SENTRY_DSN, ALERT_WEBHOOK_URL, ANTHROPIC_API_KEY.
+# ---------------------------------------------------------------------------
+existingSecret: ""
+secrets: {}
+#  SECRET_KEY: change-me
+#  DATABASE_URL: postgres://user:pass@host:5432/experimentos
+#  REDIS_URL: redis://host:6379/0
+#  CELERY_BROKER_URL: amqp://user:pass@rabbitmq:5672//
+#  SENTRY_DSN: ""
+#  ALERT_WEBHOOK_URL: ""
+#  ANTHROPIC_API_KEY: ""
+
+# ---------------------------------------------------------------------------
+# api (gunicorn)
+# ---------------------------------------------------------------------------
+api:
+  enabled: true
+  replicaCount: 2
+  # Prometheus metrics are held in-process (prometheus_client default registry,
+  # no multiprocess mode), so with >1 gunicorn worker each scrape only sees one
+  # worker's counters. Keep 1 worker per pod and scale threads/pods until the
+  # backend enables PROMETHEUS_MULTIPROC_DIR. See docs/load-testing.md.
+  gunicorn:
+    workers: 1
+    threads: 8
+    timeout: 30
+    extraArgs: ""
+  # Extra host always appended to ALLOWED_HOSTS for api pods (useful for
+  # `kubectl port-forward` / exec curl). Kubelet probes use Host: <podIP>,
+  # which is covered by the POD_IP entry the template adds.
+  probeHost: localhost
+  resources:
+    requests:
+      cpu: 250m
+      memory: 384Mi
+    limits:
+      memory: 768Mi
+  service:
+    type: ClusterIP
+    port: 8000
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startupProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    periodSeconds: 5
+    failureThreshold: 24
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    # Extra HPA metric entries appended verbatim (autoscaling/v2 format).
+    # Request-rate scaling needs prometheus-adapter (or KEDA) to expose the
+    # metric through the custom.metrics.k8s.io API, e.g. adapter rule:
+    #   seriesQuery: 'http_requests_total{namespace!="",pod!=""}'
+    #   metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
+    #   name: {as: "http_requests_per_second"}
+    customMetrics: []
+    # - type: Pods
+    #   pods:
+    #     metric:
+    #       name: http_requests_per_second
+    #     target:
+    #       type: AverageValue
+    #       averageValue: "100"
+    behavior:
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        policies:
+          - type: Percent
+            value: 50
+            periodSeconds: 60
+  pdb:
+    enabled: true
+    minAvailable: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  podAnnotations: {}
+  extraEnv: []
+
+# ---------------------------------------------------------------------------
+# Kafka -> ClickHouse event consumer
+# ---------------------------------------------------------------------------
+eventConsumer:
+  enabled: true
+  replicaCount: 1
+  metricsPort: 9100
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  # The consumer exposes no health endpoint; the probe only proves the
+  # prometheus_client HTTP thread is alive, not that the poll loop is healthy.
+  livenessProbe:
+    httpGet:
+      path: /metrics
+      port: metrics
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 3
+    failureThreshold: 3
+  autoscaling:
+    # Replicas beyond the topic partition count sit idle (one consumer group).
+    # Keep maxReplicas <= partitions of experiment-exposures/conversion-events.
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+    # Consumer-lag based scaling needs kafka-exporter + prometheus-adapter
+    # (or KEDA's kafka scaler). Example (External metric):
+    customMetrics: []
+    # - type: External
+    #   external:
+    #     metric:
+    #       name: kafka_consumergroup_lag
+    #       selector:
+    #         matchLabels:
+    #           consumergroup: experimentos-event-consumer
+    #     target:
+    #       type: AverageValue
+    #       averageValue: "1000"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  extraEnv: []
+
+# ---------------------------------------------------------------------------
+# Celery (RabbitMQ broker)
+# ---------------------------------------------------------------------------
+celeryWorker:
+  enabled: true
+  replicaCount: 1
+  concurrency: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 768Mi
+  livenessProbe:
+    exec:
+      command: ["sh", "-c", "celery -A config inspect ping -d celery@$HOSTNAME --timeout 10"]
+    initialDelaySeconds: 30
+    periodSeconds: 60
+    timeoutSeconds: 20
+    failureThreshold: 3
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  extraEnv: []
+
+celeryBeat:
+  # Must never run more than one replica (duplicate scheduled jobs). The
+  # Deployment is hard-coded to replicas: 1 with strategy Recreate.
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  extraEnv: []
+
+# ---------------------------------------------------------------------------
+# Frontend (nginx serving the SPA, proxying /api to API_UPSTREAM)
+# ---------------------------------------------------------------------------
+frontend:
+  enabled: true
+  replicaCount: 2
+  containerPort: 80
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  # nginx binds :80, so the default image needs root or NET_BIND_SERVICE;
+  # tighten once the frontend image runs unprivileged.
+  podSecurityContext: {}
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+  livenessProbe:
+    httpGet:
+      path: /
+      port: http
+    periodSeconds: 20
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
+    periodSeconds: 10
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# Ingress: SPA at /, Django at /api, /admin, /static.
+# /metrics, /healthz and /readyz are intentionally NOT routed.
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+  #  cert-manager.io/cluster-issuer: letsencrypt
+  host: experimentos.example.com
+  apiPaths:
+    - /api
+    - /admin
+    - /static
+  tls: []
+  #  - secretName: experimentos-tls
+  #    hosts: [experimentos.example.com]
+
+# ---------------------------------------------------------------------------
+# Jobs
+# ---------------------------------------------------------------------------
+migrations:
+  # `manage.py migrate` as a Helm pre-install/pre-upgrade hook (ArgoCD maps it to PreSync).
+  enabled: true
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+setupJob:
+  # One-off `setup_clickhouse` + `setup_cassandra` (idempotent CREATE ... IF NOT EXISTS)
+  # as a post-install/post-upgrade hook. Disable when schemas are managed elsewhere.
+  enabled: false
+  backoffLimit: 3
+
+# ---------------------------------------------------------------------------
+# Prometheus Operator ServiceMonitors (requires the monitoring.coreos.com CRDs)
+# ---------------------------------------------------------------------------
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  #  release: kube-prometheus-stack

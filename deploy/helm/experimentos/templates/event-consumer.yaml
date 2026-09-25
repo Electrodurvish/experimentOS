@@ -1,0 +1,112 @@
+{{- if .Values.eventConsumer.enabled }}
+{{- $c := .Values.eventConsumer }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "experimentos.fullname" . }}-event-consumer
+  labels:
+    {{- include "experimentos.componentLabels" (dict "ctx" . "component" "event-consumer") | nindent 4 }}
+spec:
+  {{- if not $c.autoscaling.enabled }}
+  replicas: {{ $c.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "experimentos.selectorLabels" (dict "ctx" . "component" "event-consumer") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "experimentos.selectorLabels" (dict "ctx" . "component" "event-consumer") | nindent 8 }}
+      annotations:
+        {{- include "experimentos.configChecksums" . | nindent 8 }}
+        {{- with $c.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "experimentos.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      # run_consumer handles SIGTERM by finishing the current message and closing
+      # the consumer (group rebalance); 30s is plenty.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: event-consumer
+          image: {{ include "experimentos.apiImage" . }}
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          command: ["python", "manage.py", "run_consumer"]
+          ports:
+            - name: metrics
+              containerPort: {{ $c.metricsPort }}
+              protocol: TCP
+          envFrom:
+            {{- include "experimentos.envFrom" . | nindent 12 }}
+          env:
+            - name: CONSUMER_METRICS_PORT
+              value: {{ $c.metricsPort | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: experimentos-event-consumer
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml $c.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            {{- include "experimentos.tmpVolumeMount" . | nindent 12 }}
+      volumes:
+        {{- include "experimentos.tmpVolume" . | nindent 8 }}
+      {{- include "experimentos.scheduling" $c | nindent 6 }}
+---
+# Headless-ish Service so Prometheus / ServiceMonitor can discover the metrics port.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "experimentos.fullname" . }}-event-consumer
+  labels:
+    {{- include "experimentos.componentLabels" (dict "ctx" . "component" "event-consumer") | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "experimentos.selectorLabels" (dict "ctx" . "component" "event-consumer") | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ $c.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+{{- if $c.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "experimentos.fullname" . }}-event-consumer
+  labels:
+    {{- include "experimentos.componentLabels" (dict "ctx" . "component" "event-consumer") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "experimentos.fullname" . }}-event-consumer
+  minReplicas: {{ $c.autoscaling.minReplicas }}
+  maxReplicas: {{ $c.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $c.autoscaling.targetCPUUtilizationPercentage }}
+    {{- with $c.autoscaling.customMetrics }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- end }}

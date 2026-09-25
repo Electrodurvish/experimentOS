@@ -1,0 +1,39 @@
+# VCS / editor / OS
+.git
+.gitignore
+.github
+.idea
+.vscode
+.claude
+.DS_Store
+*.swp
+*.swo
+
+# Python artefacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+*.egg-info/
+staticfiles/
+
+# Local secrets and data (never bake into an image)
+.env
+*.sqlite3
+
+# Not needed in the backend image (frontend has its own Dockerfile/context)
+frontend/
+deploy/
+loadtest/
+docs/
+infra/
+scripts/
+plan.md
+docker-compose*.yml
+Dockerfile
+.dockerignore

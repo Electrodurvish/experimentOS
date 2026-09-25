@@ -1,0 +1,38 @@
+# Dev Application: same chart with values-dev.yaml. Auto-sync with prune and
+# self-heal like prod, so drift in the dev cluster is corrected too.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: experimentos-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: experimentos
+    environment: dev
+spec:
+  project: experimentos
+  source:
+    repoURL: https://github.com/Electrodurvish/experimentOS.git
+    targetRevision: main
+    path: deploy/helm/experimentos
+    helm:
+      releaseName: experimentos
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: experimentos-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 1m

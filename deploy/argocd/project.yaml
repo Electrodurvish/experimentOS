@@ -1,0 +1,56 @@
+# AppProject scoping what the ExperimentOS Applications may deploy and where.
+#   kubectl apply -n argocd -f deploy/argocd/project.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: experimentos
+  namespace: argocd
+  # Prevent deleting the project while Applications still reference it.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: ExperimentOS experimentation platform
+  sourceRepos:
+    - https://github.com/Electrodurvish/experimentOS.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: experimentos
+    - server: https://kubernetes.default.svc
+      namespace: experimentos-dev
+  # Only namespaced kinds the chart renders; nothing cluster-scoped.
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment
+    - group: batch
+      kind: Job
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: monitoring.coreos.com
+      kind: ServiceMonitor
+  # Namespace creation (CreateNamespace=true) needs Namespace in the cluster whitelist.
+  # Uncomment if Argo should create the namespace instead of a platform admin.
+  # clusterResourceWhitelist:
+  #   - group: ""
+  #     kind: Namespace
+  roles:
+    - name: deployer
+      description: CI / release managers may sync and roll back
+      policies:
+        - p, proj:experimentos:deployer, applications, get, experimentos/*, allow
+        - p, proj:experimentos:deployer, applications, sync, experimentos/*, allow
+        - p, proj:experimentos:deployer, applications, action/*, experimentos/*, allow
+  orphanedResources:
+    warn: true

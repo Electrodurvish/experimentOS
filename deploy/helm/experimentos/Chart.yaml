@@ -1,0 +1,15 @@
+apiVersion: v2
+name: experimentos
+description: ExperimentOS - experimentation and release platform (api, event consumer, celery, frontend)
+type: application
+# Chart version: bump when templates change.
+version: 0.1.0
+# Default application version; the image tag in values overrides it.
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+keywords:
+  - experimentation
+  - ab-testing
+  - django
+maintainers:
+  - name: ExperimentOS

@@ -1,0 +1,95 @@
+# CD: after CI succeeds on main (images for that SHA are in GHCR), write the
+# SHA into deploy/helm/experimentos/values-prod.yaml and commit it. ArgoCD
+# watches main and syncs the new tag (GitOps: git is the deployment record).
+#
+# Manual promotion / rollback: run this workflow with `image_tag` set to any
+# previously pushed SHA.
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag (git SHA) to deploy to production"
+        required: true
+        type: string
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  promote:
+    name: Promote image tag to values-prod.yaml
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.image_tag }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          tag="${INPUT_TAG:-$RUN_SHA}"
+          if ! [[ "$tag" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "Refusing non-SHA tag: $tag" >&2; exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Verify images exist in GHCR
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for img in api frontend; do
+            docker manifest inspect "ghcr.io/${owner}/experimentos-${img}:${TAG}" > /dev/null
+          done
+
+      - name: Update values-prod.yaml
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # mikefarah/yq is preinstalled on ubuntu-latest runners.
+          yq -i '.image.api.tag = strenv(TAG) | .image.frontend.tag = strenv(TAG)' \
+            deploy/helm/experimentos/values-prod.yaml
+          git diff --stat
+
+      - name: Commit and push
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if git diff --quiet; then
+            echo "values-prod.yaml already at ${TAG}"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/helm/experimentos/values-prod.yaml
+          # Pushes made with GITHUB_TOKEN do not trigger new workflow runs, so
+          # this commit cannot loop back into CI/CD.
+          git commit -m "deploy(prod): experimentos images -> ${TAG:0:12}"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            echo "push rejected (attempt ${attempt}), rebasing on latest main"
+            git pull --rebase origin main
+          done
+          exit 1

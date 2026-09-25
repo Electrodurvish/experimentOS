@@ -1,0 +1,99 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Revision in the name keeps each upgrade's Job distinct in history/logs.
+  name: {{ include "experimentos.fullname" . }}-migrate-{{ .Release.Revision }}
+  labels:
+    {{- include "experimentos.componentLabels" (dict "ctx" . "component" "migrate") | nindent 4 }}
+  annotations:
+    # Runs before any Deployment is updated. ArgoCD maps this to a PreSync hook.
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "experimentos.selectorLabels" (dict "ctx" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      # The chart ServiceAccount does not exist yet during pre-install; use the
+      # namespace default SA with no token mounted.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "experimentos.apiImage" . }}
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "experimentos.hookConfigMapName" . }}
+            - secretRef:
+                name: {{ include "experimentos.hookSecretName" . }}
+          env:
+            # migrate does not run tracing-worthy work; keep it quiet.
+            - name: OTEL_ENABLED
+              value: "False"
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            {{- include "experimentos.tmpVolumeMount" . | nindent 12 }}
+      volumes:
+        {{- include "experimentos.tmpVolume" . | nindent 8 }}
+{{- end }}
+{{- if .Values.setupJob.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "experimentos.fullname" . }}-setup-{{ .Release.Revision }}
+  labels:
+    {{- include "experimentos.componentLabels" (dict "ctx" . "component" "setup") | nindent 4 }}
+  annotations:
+    # Post hook: regular ConfigMap/Secret exist by now. Both commands are idempotent.
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.setupJob.backoffLimit }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "experimentos.selectorLabels" (dict "ctx" . "component" "setup") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "experimentos.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: setup
+          image: {{ include "experimentos.apiImage" . }}
+          imagePullPolicy: {{ .Values.image.api.pullPolicy }}
+          command: ["sh", "-c", "python manage.py setup_clickhouse && python manage.py setup_cassandra"]
+          envFrom:
+            {{- include "experimentos.envFrom" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            {{- include "experimentos.tmpVolumeMount" . | nindent 12 }}
+      volumes:
+        {{- include "experimentos.tmpVolume" . | nindent 8 }}
+{{- end }}

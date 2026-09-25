@@ -1,0 +1,24 @@
+ExperimentOS {{ .Chart.AppVersion }} deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Images:
+  api/consumer/celery: {{ include "experimentos.apiImage" . }}
+  frontend:            {{ include "experimentos.frontendImage" . }}
+
+{{- if .Values.ingress.enabled }}
+URL: http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}/
+{{- end }}
+
+Check rollout:
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "experimentos.fullname" . }}-api 8000:{{ .Values.api.service.port }}
+  curl -H "Host: {{ .Values.api.probeHost }}" http://127.0.0.1:8000/readyz
+
+Create the first admin user:
+  kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "experimentos.fullname" . }}-api -- python manage.py createsuperuser
+
+{{- if not .Values.setupJob.enabled }}
+
+ClickHouse/Cassandra schemas are not managed by this release (setupJob.enabled=false). Run once:
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "experimentos.fullname" . }}-api -- python manage.py setup_clickhouse
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "experimentos.fullname" . }}-api -- python manage.py setup_cassandra
+{{- end }}

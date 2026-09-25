@@ -237,6 +237,18 @@ services:
     env_file:
       - .env
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    environment:
+      API_UPSTREAM: http://api:8000
+    depends_on:
+      api:
+        condition: service_started
+
 volumes:
   postgres_data:
   cassandra_data:

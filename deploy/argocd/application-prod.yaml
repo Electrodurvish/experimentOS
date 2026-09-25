@@ -1,0 +1,54 @@
+# Production Application: GitHub (Helm values) -> ArgoCD -> Kubernetes.
+#
+# CI updates image tags in deploy/helm/experimentos/values-prod.yaml on main;
+# ArgoCD notices the new commit and syncs. Rollback = revert that commit
+# (or `argocd app rollback experimentos-prod`, which is overwritten on the
+# next auto-sync unless auto-sync is paused first).
+#
+#   kubectl apply -n argocd -f deploy/argocd/project.yaml -f deploy/argocd/application-prod.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: experimentos-prod
+  namespace: argocd
+  finalizers:
+    # Deleting the Application deletes the resources it manages.
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: experimentos
+    environment: production
+spec:
+  project: experimentos
+  source:
+    repoURL: https://github.com/Electrodurvish/experimentOS.git
+    targetRevision: main
+    path: deploy/helm/experimentos
+    helm:
+      releaseName: experimentos
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: experimentos
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  # HPAs own replica counts; don't fight them.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+  revisionHistoryLimit: 10

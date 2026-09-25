@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars and adjust. Do not commit real values.
+region      = "us-east-1"
+name        = "experimentos"
+environment = "prod"
+
+# Restrict the public EKS API endpoint to your office/VPN/CI egress.
+cluster_endpoint_public_access_cidrs = ["203.0.113.0/24"]
+
+node_instance_types = ["m6i.large"]
+node_min_size       = 2
+node_desired_size   = 3
+node_max_size       = 6
+
+db_instance_class = "db.t4g.medium"
+db_multi_az       = true
+
+redis_node_type          = "cache.t4g.small"
+redis_num_cache_clusters = 2
+
+# Dev: cheaper, not HA
+# single_nat_gateway     = true
+# db_multi_az            = false
+# db_deletion_protection = false
+# redis_num_cache_clusters = 1
