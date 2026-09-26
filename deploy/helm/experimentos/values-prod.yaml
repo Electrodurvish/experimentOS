@@ -8,19 +8,17 @@
 image:
   api:
     repository: ghcr.io/electrodurvish/experimentos-api
-    tag: "latest"
+    tag: "f343d1ebf6d67033ea2c5ccb6ab9b2cab062e239"
     pullPolicy: IfNotPresent
   frontend:
     repository: ghcr.io/electrodurvish/experimentos-frontend
-    tag: "latest"
+    tag: "f343d1ebf6d67033ea2c5ccb6ab9b2cab062e239"
     pullPolicy: IfNotPresent
-
 # Created out-of-band (External Secrets Operator syncing from AWS Secrets
 # Manager is the intended setup - see deploy/terraform/README.md). Keys:
 # SECRET_KEY, DATABASE_URL, REDIS_URL, CELERY_BROKER_URL, SENTRY_DSN,
 # ALERT_WEBHOOK_URL, ANTHROPIC_API_KEY.
 existingSecret: experimentos-secrets
-
 config:
   DJANGO_SETTINGS_MODULE: config.settings.production
   ALLOWED_HOSTS: "experimentos.example.com"
@@ -45,7 +43,6 @@ config:
   SENTRY_TRACES_SAMPLE_RATE: "0.05"
   DECISION_INTERVAL_SECONDS: "300"
   HEALTH_INTERVAL_SECONDS: "900"
-
 api:
   autoscaling:
     enabled: true
@@ -69,7 +66,6 @@ api:
         matchLabels:
           app.kubernetes.io/name: experimentos
           app.kubernetes.io/component: api
-
 eventConsumer:
   autoscaling:
     enabled: true
@@ -77,14 +73,11 @@ eventConsumer:
     # Must not exceed the partition count of the event topics.
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
-
 celeryWorker:
   replicaCount: 2
   concurrency: 4
-
 frontend:
   replicaCount: 2
-
 ingress:
   enabled: true
   className: nginx
@@ -96,13 +89,10 @@ ingress:
     - secretName: experimentos-tls
       hosts:
         - experimentos.example.com
-
 migrations:
   enabled: true
-
 setupJob:
   enabled: false
-
 serviceMonitor:
   enabled: true
   labels:
