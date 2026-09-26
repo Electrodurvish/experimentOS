@@ -257,7 +257,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
       - name: Trivy scan (fail on CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.meta.outputs.image }}:${{ github.sha }}
           format: table
@@ -267,7 +267,7 @@ jobs:
           vuln-type: os,library
       - name: Trivy report (HIGH, informational)
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.meta.outputs.image }}:${{ github.sha }}
           format: table
