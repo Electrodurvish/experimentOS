@@ -11,13 +11,14 @@ COPY . .
 RUN npm run build
 
 # ---- Runtime stage -----------------------------------------------------------
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.29-alpine AS runtime
 
 # Upstream Django API; override at runtime, e.g. -e API_UPSTREAM=http://backend:8000
 ENV API_UPSTREAM=http://api:8000
 
 # The nginx image renders /etc/nginx/templates/*.template into /etc/nginx/conf.d/ via envsubst.
-RUN rm -f /etc/nginx/conf.d/default.conf
+# Pull in OS security fixes (e.g. OpenSSL) newer than the base image.
+RUN apk upgrade --no-cache && rm -f /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 
