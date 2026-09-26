@@ -8,11 +8,11 @@
 image:
   api:
     repository: ghcr.io/electrodurvish/experimentos-api
-    tag: "f343d1ebf6d67033ea2c5ccb6ab9b2cab062e239"
+    tag: "8d1a37d2ae6e928cb4853fa596f1654848caad7e"
     pullPolicy: IfNotPresent
   frontend:
     repository: ghcr.io/electrodurvish/experimentos-frontend
-    tag: "f343d1ebf6d67033ea2c5ccb6ab9b2cab062e239"
+    tag: "8d1a37d2ae6e928cb4853fa596f1654848caad7e"
     pullPolicy: IfNotPresent
 # Created out-of-band (External Secrets Operator syncing from AWS Secrets
 # Manager is the intended setup - see deploy/terraform/README.md). Keys:
