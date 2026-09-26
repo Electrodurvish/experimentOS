@@ -26,6 +26,19 @@ See [docs/architecture.md](docs/architecture.md) for diagrams and [docs/adr/](do
 | AI | Claude API over structured evidence, with deterministic fallback |
 | Delivery | Docker, Helm, Kubernetes HPA, ArgoCD, Terraform (AWS), GitHub Actions |
 
+## See it running (demo)
+
+```bash
+scripts/demo.sh          # builds and starts everything, then loads demo data (~5 min the first time)
+scripts/demo.sh down     # stop and delete the demo data
+```
+
+Then open http://localhost:8080 and log in as `demo@experimentos.local` / `ExperimentOS-demo-1`.
+The demo uses built images and publishes only ports 8080 (dashboard) and 8000 (API), so it works
+alongside a local Postgres/Redis and without Docker file sharing for this folder.
+In the demo data, `checkout_v3` improves conversion but breaches its error-rate guardrail, so the
+decision engine rolls it back from 50% to 10%.
+
 ## Quick start (Docker Compose)
 
 ```bash
