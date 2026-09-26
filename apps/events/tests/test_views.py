@@ -221,3 +221,12 @@ class TestUnequalSplitSRM:
         assert response.data["variants"]["treatment"]["lift"] is None
         response = authenticated_client.get("/api/v1/experiments/?page_size=1")
         assert response.data["results"][0]["project"] == running_experiment.project_id
+
+
+def test_setup_clickhouse_creates_all_tables(mock_clickhouse):
+    from django.core.management import call_command
+
+    call_command("setup_clickhouse")
+    created = " ".join(str(c.args[0]) for c in mock_clickhouse.command.call_args_list)
+    for table in ("experiment_exposures", "conversion_events", "production_telemetry"):
+        assert table in created

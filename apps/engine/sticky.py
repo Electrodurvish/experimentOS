@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 _session = None
 _circuit_open_until = 0.0
+_session_lock = threading.Lock()
 CIRCUIT_BREAK_SECONDS = 30.0
 
 
@@ -45,6 +47,14 @@ def _get_session():
         return _session
     if time.monotonic() < _circuit_open_until:
         raise StickyStoreUnavailableError("Cassandra circuit open")
+    with _session_lock:
+        if _session is None:
+            _session = _connect()
+    return _session
+
+
+def _connect():
+    global _circuit_open_until
 
     from cassandra.cluster import Cluster
     from cassandra.policies import DCAwareRoundRobinPolicy
@@ -57,12 +67,11 @@ def _get_session():
         connect_timeout=getattr(settings, "CASSANDRA_CONNECT_TIMEOUT", 2.0),
     )
     try:
-        _session = cluster.connect(settings.CASSANDRA_KEYSPACE)
+        return cluster.connect(settings.CASSANDRA_KEYSPACE)
     except Exception:
         _circuit_open_until = time.monotonic() + CIRCUIT_BREAK_SECONDS
         cluster.shutdown()
         raise
-    return _session
 
 
 def get_sticky_assignment(user_id, experiment_id):

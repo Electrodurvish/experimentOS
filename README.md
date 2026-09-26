@@ -32,6 +32,7 @@ See [docs/architecture.md](docs/architecture.md) for diagrams and [docs/adr/](do
 cp .env.example .env              # set SECRET_KEY; ANTHROPIC_API_KEY is optional
 docker compose up -d --build
 docker compose exec api python manage.py migrate
+docker compose exec api python manage.py setup_kafka
 docker compose exec api python manage.py setup_clickhouse
 docker compose exec api python manage.py setup_cassandra
 docker compose exec api python manage.py createsuperuser

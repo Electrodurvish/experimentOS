@@ -21,6 +21,7 @@ Telemetry data is ingested via API and stored in ClickHouse.
 import logging
 
 from apps.events.clickhouse import get_clickhouse_client, parse_event_time
+from apps.observability.metrics import record_error
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ def ingest_telemetry(experiment_id, variant_key, metric_name, metric_value, even
         )
     except Exception:
         logger.warning("Failed to ingest telemetry", exc_info=True)
+        record_error("clickhouse", "telemetry_insert_failed")
 
 
 def query_variant_telemetry(experiment_id):

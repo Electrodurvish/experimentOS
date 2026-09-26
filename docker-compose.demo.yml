@@ -1,0 +1,63 @@
+# Self-contained demo stack: runs the built images (no source bind mounts) and
+# publishes only the dashboard and API, so it does not clash with local
+# Postgres/Redis or need Docker file sharing for this folder.
+#
+#   scripts/demo.sh            # build, start, seed demo data, print the login
+#   docker compose -p experimentos-demo -f docker-compose.yml -f docker-compose.demo.yml down -v
+
+x-env: &env
+  DJANGO_SETTINGS_MODULE: config.settings.local
+  SECRET_KEY: demo-not-for-production
+  DEBUG: "True"
+  ALLOWED_HOSTS: "*"
+  DATABASE_URL: postgres://experimentos:experimentos@db:5432/experimentos
+  REDIS_URL: redis://redis:6379/0
+  CASSANDRA_CONTACT_POINTS: cassandra
+  KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  KAFKA_ENABLED: "True"
+  CLICKHOUSE_HOST: clickhouse
+  CLICKHOUSE_PORT: "8123"
+  CLICKHOUSE_DATABASE: experimentos
+  CELERY_BROKER_URL: amqp://guest:guest@rabbitmq:5672//
+  SDK_THROTTLE_RATE: "100000/min"
+  OTEL_ENABLED: "False"
+  DECISION_INTERVAL_SECONDS: "60"
+
+services:
+  db:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  cassandra:
+    ports: !reset []
+  kafka:
+    ports: !reset []
+  clickhouse:
+    ports: !reset []
+  rabbitmq:
+    ports: !reset []
+  api:
+    volumes: !reset []
+    env_file: !reset []
+    ports: !override ["8000:8000"]
+    command: >-
+      sh -c "python manage.py migrate --noinput
+      && python manage.py setup_kafka
+      && python manage.py setup_clickhouse
+      && python manage.py setup_cassandra
+      && gunicorn config.wsgi:application"
+    environment: *env
+  event-consumer:
+    volumes: !reset []
+    env_file: !reset []
+    environment:
+      <<: *env
+      CONSUMER_METRICS_PORT: "9100"
+  celery-worker:
+    volumes: !reset []
+    env_file: !reset []
+    environment: *env
+  celery-beat:
+    volumes: !reset []
+    env_file: !reset []
+    environment: *env

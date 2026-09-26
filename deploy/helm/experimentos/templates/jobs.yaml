@@ -87,7 +87,7 @@ spec:
         - name: setup
           image: {{ include "experimentos.apiImage" . }}
           imagePullPolicy: {{ .Values.image.api.pullPolicy }}
-          command: ["sh", "-c", "python manage.py setup_clickhouse && python manage.py setup_cassandra"]
+          command: ["sh", "-c", "python manage.py setup_kafka && python manage.py setup_clickhouse && python manage.py setup_cassandra"]
           envFrom:
             {{- include "experimentos.envFrom" . | nindent 12 }}
           securityContext:

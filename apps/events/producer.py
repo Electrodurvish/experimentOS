@@ -1,6 +1,7 @@
 import atexit
 import json
 import logging
+import threading
 import uuid
 from datetime import datetime, timezone
 
@@ -11,13 +12,18 @@ from apps.observability.metrics import record_error, record_event_produced
 logger = logging.getLogger(__name__)
 
 _producer = None
+_producer_lock = threading.Lock()
 
 TOPIC_EXPOSURES = "experiment-exposures"
 TOPIC_CONVERSIONS = "conversion-events"
 
 
 def _get_producer():
-    """Lazy singleton Kafka producer."""
+    """
+    Lazy singleton Kafka producer, safe under threaded workers: without the lock,
+    concurrent first requests each built a producer and the discarded ones were
+    garbage-collected with messages still queued (lost events).
+    """
     global _producer
     if _producer is not None:
         return _producer
@@ -25,24 +31,27 @@ def _get_producer():
     if not getattr(settings, "KAFKA_ENABLED", False):
         return None
 
-    try:
-        from confluent_kafka import Producer
+    with _producer_lock:
+        if _producer is not None:
+            return _producer
+        try:
+            from confluent_kafka import Producer
 
-        _producer = Producer({
-            "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
-            "client.id": "experimentos-api",
-            "acks": "all",
-            "retries": 3,
-            "retry.backoff.ms": 100,
-            "linger.ms": 5,
-            # Surface broker outages within 30s instead of the 5-minute default.
-            "message.timeout.ms": 30000,
-        })
-        atexit.register(flush_producer)
-        return _producer
-    except Exception:
-        logger.warning("Failed to create Kafka producer", exc_info=True)
-        return None
+            _producer = Producer({
+                "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
+                "client.id": "experimentos-api",
+                "acks": "all",
+                "retries": 3,
+                "retry.backoff.ms": 100,
+                "linger.ms": 5,
+                # Surface broker outages within 30s instead of the 5-minute default.
+                "message.timeout.ms": 30000,
+            })
+            atexit.register(flush_producer)
+            return _producer
+        except Exception:
+            logger.warning("Failed to create Kafka producer", exc_info=True)
+            return None
 
 
 def _delivery_callback(err, msg):

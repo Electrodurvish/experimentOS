@@ -1,18 +1,23 @@
 import json
 import logging
+import threading
 
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-_client = None
+_local = threading.local()
 
 
 def get_clickhouse_client():
-    """Lazy singleton ClickHouse client."""
-    global _client
-    if _client is not None:
-        return _client
+    """
+    Lazy ClickHouse client, one per thread. clickhouse-connect clients hold a
+    per-client session and must not run queries concurrently, so threaded
+    gunicorn workers get their own.
+    """
+    client = getattr(_local, "client", None)
+    if client is not None:
+        return client
 
     host = getattr(settings, "CLICKHOUSE_HOST", "")
     if not host:
@@ -21,12 +26,13 @@ def get_clickhouse_client():
     try:
         import clickhouse_connect
 
-        _client = clickhouse_connect.get_client(
+        _local.client = clickhouse_connect.get_client(
             host=host,
             port=getattr(settings, "CLICKHOUSE_PORT", 8123),
             database=getattr(settings, "CLICKHOUSE_DATABASE", "experimentos"),
+            autogenerate_session_id=False,
         )
-        return _client
+        return _local.client
     except Exception:
         logger.warning("Failed to connect to ClickHouse", exc_info=True)
         return None
