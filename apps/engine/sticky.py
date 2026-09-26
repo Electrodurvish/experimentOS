@@ -52,7 +52,8 @@ def _get_session():
     cluster = Cluster(
         contact_points=settings.CASSANDRA_CONTACT_POINTS,
         port=settings.CASSANDRA_PORT,
-        load_balancing_policy=DCAwareRoundRobinPolicy(local_dc="dc1"),
+        # Empty CASSANDRA_LOCAL_DC lets the driver take the DC of the first contact point.
+        load_balancing_policy=DCAwareRoundRobinPolicy(local_dc=settings.CASSANDRA_LOCAL_DC or None),
         connect_timeout=getattr(settings, "CASSANDRA_CONNECT_TIMEOUT", 2.0),
     )
     try:

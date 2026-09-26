@@ -214,6 +214,9 @@ def run_consumer():
         "group.id": "experimentos-event-consumer",
         "auto.offset.reset": "earliest",
         "enable.auto.commit": False,
+        # Pick up topics created after startup (e.g. the first conversion) within seconds,
+        # not the 5-minute librdkafka default.
+        "topic.metadata.refresh.interval.ms": 10000,
     })
 
     topics = [TOPIC_EXPOSURES, TOPIC_CONVERSIONS]

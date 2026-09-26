@@ -57,6 +57,7 @@ config:
   CASSANDRA_CONTACT_POINTS: "cassandra"
   CASSANDRA_PORT: "9042"
   CASSANDRA_KEYSPACE: experimentos
+  CASSANDRA_LOCAL_DC: ""  # empty = datacenter of the first contact point
   CASSANDRA_STICKY_ENABLED: "True"
   KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
   KAFKA_ENABLED: "True"
